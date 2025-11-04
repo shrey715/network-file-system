@@ -1,0 +1,38 @@
+# Binaries
+name_server
+storage_server
+client
+
+# Object files
+*.o
+*.so
+*.a
+
+# Data and logs
+data/*
+logs/*
+
+# Keep directory structure
+!data/.gitkeep
+!logs/.gitkeep
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debug files
+*.dSYM/
+*.gdb_history
+core
+vgcore.*
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Test outputs
+/tmp/demo_commands.txt
