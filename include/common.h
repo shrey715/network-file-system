@@ -20,7 +20,8 @@
 #define MAX_FILENAME 256
 #define MAX_USERNAME 64
 #define MAX_IP 16
-#define MAX_PATH 512
+#define MAX_STORAGE_DIR 512      // Maximum length for storage directory path
+#define MAX_PATH 1024            // Maximum length for full file paths
 #define BUFFER_SIZE 4096
 #define MAX_STORAGE_SERVERS 10
 #define MAX_FILES 1000

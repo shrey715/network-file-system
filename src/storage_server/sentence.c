@@ -127,7 +127,11 @@ void free_sentences(Sentence* sentences, int count) {
 // Write lock operation
 int ss_write_lock(const char* filename, int sentence_idx, const char* username) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
@@ -167,7 +171,11 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
 int ss_write_word(const char* filename, int sentence_idx, int word_idx, 
                   const char* new_word, const char* username) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     // Save undo snapshot before first write
     ss_save_undo(filename);
@@ -248,8 +256,13 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
 
 // Write unlock operation
 int ss_write_unlock(const char* filename, int sentence_idx, const char* username) {
+    (void)sentence_idx;  // Unused parameter - kept for API consistency
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
@@ -271,11 +284,12 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
     
     // Update metadata
     char metapath[MAX_PATH];
-    snprintf(metapath, sizeof(metapath), "%s/%s.meta", config.storage_dir, filename);
-    FILE* f = fopen(metapath, "a");
-    if (f) {
-        fprintf(f, "modified:%ld\n", time(NULL));
-        fclose(f);
+    if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") == ERR_SUCCESS) {
+        FILE* f = fopen(metapath, "a");
+        if (f) {
+            fprintf(f, "modified:%ld\n", time(NULL));
+            fclose(f);
+        }
     }
     
     free_sentences(sentences, count);
@@ -290,15 +304,22 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
 // Save undo snapshot
 int ss_save_undo(const char* filename) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    char undopath[MAX_PATH];
+    
+    // Safely construct paths
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     char* content = read_file_content(filepath);
     if (!content) {
         return ERR_FILE_OPERATION_FAILED;
     }
     
-    char undopath[MAX_PATH];
-    snprintf(undopath, sizeof(undopath), "%s/%s.undo", config.storage_dir, filename);
+    if (ss_build_filepath(undopath, sizeof(undopath), filename, ".undo") != ERR_SUCCESS) {
+        free(content);
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     int result = write_file_content(undopath, content);
     free(content);
@@ -309,7 +330,12 @@ int ss_save_undo(const char* filename) {
 // Undo file changes
 int ss_undo_file(const char* filename) {
     char undopath[MAX_PATH];
-    snprintf(undopath, sizeof(undopath), "%s/%s.undo", config.storage_dir, filename);
+    char filepath[MAX_PATH];
+    
+    // Safely construct paths
+    if (ss_build_filepath(undopath, sizeof(undopath), filename, ".undo") != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     if (!file_exists(undopath)) {
         return ERR_UNDO_NOT_AVAILABLE;
@@ -320,8 +346,10 @@ int ss_undo_file(const char* filename) {
         return ERR_FILE_OPERATION_FAILED;
     }
     
-    char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        free(undo_content);
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     int result = write_file_content(filepath, undo_content);
     free(undo_content);
@@ -339,7 +367,11 @@ int ss_undo_file(const char* filename) {
 // Stream file word by word
 int ss_stream_file(int client_socket, const char* filename) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     char* content = read_file_content(filepath);
     if (!content) {

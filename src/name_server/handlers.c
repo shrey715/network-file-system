@@ -13,7 +13,6 @@ void* handle_client_connection(void* arg) {
     
     while (recv_message(client_fd, &header, &payload) > 0) {
         char response_buf[BUFFER_SIZE];
-        char* response_payload = NULL;
         
         log_operation("NM", header.username, 
                      header.op_code == OP_VIEW ? "VIEW" :

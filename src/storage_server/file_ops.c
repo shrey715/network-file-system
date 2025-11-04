@@ -3,10 +3,44 @@
 
 extern SSConfig config;
 
+/**
+ * Safe path construction with bounds checking
+ * @param dest Destination buffer
+ * @param dest_size Size of destination buffer
+ * @param filename Filename to append
+ * @param extension Optional extension (can be NULL), e.g., ".meta", ".undo"
+ * @return ERR_SUCCESS on success, ERR_FILE_OPERATION_FAILED if path would be truncated
+ * 
+ * This function properly handles path length limits and returns an error
+ * instead of silently truncating, preventing potential security issues.
+ */
+int ss_build_filepath(char* dest, size_t dest_size, const char* filename, const char* extension) {
+    int written;
+    
+    if (extension) {
+        written = snprintf(dest, dest_size, "%s/%s%s", config.storage_dir, filename, extension);
+    } else {
+        written = snprintf(dest, dest_size, "%s/%s", config.storage_dir, filename);
+    }
+    
+    // snprintf returns the number of characters that would have been written (excluding null)
+    // If written >= dest_size, truncation occurred
+    if (written < 0 || (size_t)written >= dest_size) {
+        log_message("SS", "ERROR", "Path construction failed - path too long");
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    return ERR_SUCCESS;
+}
+
 // Create a new empty file
 int ss_create_file(const char* filename, const char* owner) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     // Check if file already exists
     if (file_exists(filepath)) {
@@ -33,7 +67,13 @@ int ss_create_file(const char* filename, const char* owner) {
 // Delete a file
 int ss_delete_file(const char* filename) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    char metapath[MAX_PATH];
+    char undopath[MAX_PATH];
+    
+    // Safely construct paths
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
@@ -43,15 +83,15 @@ int ss_delete_file(const char* filename) {
         return ERR_FILE_OPERATION_FAILED;
     }
     
-    // Delete metadata
-    char metapath[MAX_PATH];
-    snprintf(metapath, sizeof(metapath), "%s/%s.meta", config.storage_dir, filename);
-    unlink(metapath);
+    // Delete metadata (ignore errors - file may not exist)
+    if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") == ERR_SUCCESS) {
+        unlink(metapath);
+    }
     
-    // Delete undo file
-    char undopath[MAX_PATH];
-    snprintf(undopath, sizeof(undopath), "%s/%s.undo", config.storage_dir, filename);
-    unlink(undopath);
+    // Delete undo file (ignore errors - file may not exist)
+    if (ss_build_filepath(undopath, sizeof(undopath), filename, ".undo") == ERR_SUCCESS) {
+        unlink(undopath);
+    }
     
     char msg[256];
     snprintf(msg, sizeof(msg), "Deleted file: %s", filename);
@@ -63,7 +103,11 @@ int ss_delete_file(const char* filename) {
 // Read file content
 int ss_read_file(const char* filename, char** content) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
@@ -84,7 +128,11 @@ int ss_read_file(const char* filename, char** content) {
 // Get file information
 int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
     char filepath[MAX_PATH];
-    snprintf(filepath, sizeof(filepath), "%s/%s", config.storage_dir, filename);
+    
+    // Safely construct the file path
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
@@ -119,7 +167,12 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
 // Save file metadata
 void save_file_metadata(const char* filename, const char* owner) {
     char metapath[MAX_PATH];
-    snprintf(metapath, sizeof(metapath), "%s/%s.meta", config.storage_dir, filename);
+    
+    // Safely construct the metadata file path
+    if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") != ERR_SUCCESS) {
+        log_message("SS", "ERROR", "Failed to construct metadata path");
+        return;
+    }
     
     FILE* f = fopen(metapath, "w");
     if (f) {

@@ -28,7 +28,7 @@ typedef struct {
     char nm_ip[MAX_IP];
     int nm_port;
     int client_port;
-    char storage_dir[MAX_PATH];
+    char storage_dir[MAX_STORAGE_DIR];
 } SSConfig;
 
 // Active file sessions
@@ -73,5 +73,8 @@ void* handle_client_request(void* arg);
 // Persistence
 void load_files(void);
 void save_file_metadata(const char* filename, const char* owner);
+
+// Safe path construction
+int ss_build_filepath(char* dest, size_t dest_size, const char* filename, const char* extension);
 
 #endif // STORAGE_SERVER_H
