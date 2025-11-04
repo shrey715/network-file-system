@@ -1,0 +1,32 @@
+# File: Makefile
+CC = gcc
+CFLAGS = -Wall -Wextra -pthread -g -I./include
+LDFLAGS = -lpthread
+
+# Source files
+COMMON_SRC = src/common/network.c src/common/logger.c src/common/utils.c
+NS_SRC = src/name_server/main.c src/name_server/file_registry.c src/name_server/handlers.c
+SS_SRC = src/storage_server/main.c src/storage_server/file_ops.c src/storage_server/sentence.c
+CLIENT_SRC = src/client/main.c src/client/commands.c src/client/parser.c
+
+# Targets
+all: name_server storage_server client
+
+name_server: $(NS_SRC) $(COMMON_SRC)
+	$(CC) $(CFLAGS) -o name_server $(NS_SRC) $(COMMON_SRC) $(LDFLAGS)
+
+storage_server: $(SS_SRC) $(COMMON_SRC)
+	$(CC) $(CFLAGS) -o storage_server $(SS_SRC) $(COMMON_SRC) $(LDFLAGS)
+
+client: $(CLIENT_SRC) $(COMMON_SRC)
+	$(CC) $(CFLAGS) -o client $(CLIENT_SRC) $(COMMON_SRC) $(LDFLAGS)
+
+clean:
+	rm -f name_server storage_server client
+	rm -f src/*/*.o
+	rm -rf data/* logs/*
+
+test: all
+	./tests/run_tests.sh
+
+.PHONY: all clean test
