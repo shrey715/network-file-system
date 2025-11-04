@@ -4,6 +4,15 @@
 // Global name server state
 NameServerState ns_state;
 
+/**
+ * main (Name Server)
+ *
+ * Start the central Name Server which listens for client and storage server
+ * connections. The Name Server maintains the file registry and routes client
+ * requests to appropriate storage servers.
+ *
+ * Usage: ./name_server <port>
+ */
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port>\n", argv[0]);

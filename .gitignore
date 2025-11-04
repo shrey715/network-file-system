@@ -35,3 +35,6 @@ vgcore.*
 
 # === Test Outputs ===
 /tmp/demo_commands.txt
+
+course_project.md
+llm.md

@@ -68,6 +68,9 @@ int main(int argc, char* argv[]) {
     snprintf(msg, sizeof(msg), "Storage Server %d listening on port %d", 
              config.server_id, config.client_port);
     log_message("SS", "INFO", msg);
+
+    // Initialize lock registry
+    init_locked_file_registry();
     
     // Accept client connections
     while (1) {
@@ -87,5 +90,6 @@ int main(int argc, char* argv[]) {
     
     close(nm_socket);
     close(client_socket);
+    cleanup_locked_file_registry();
     return 0;
 }

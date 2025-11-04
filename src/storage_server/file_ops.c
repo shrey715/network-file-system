@@ -34,6 +34,18 @@ int ss_build_filepath(char* dest, size_t dest_size, const char* filename, const 
 }
 
 // Create a new empty file
+/**
+ * ss_create_file
+ * @brief Create a new empty file on the Storage Server and initialize its
+ *        metadata.
+ *
+ * Constructs a safe path under the configured storage directory, ensures the
+ * file does not already exist, creates it, and writes basic metadata.
+ *
+ * @param filename Null-terminated filename to create.
+ * @param owner Null-terminated owner username for metadata.
+ * @return ERR_SUCCESS on success, or ERR_FILE_EXISTS / ERR_FILE_OPERATION_FAILED.
+ */
 int ss_create_file(const char* filename, const char* owner) {
     char filepath[MAX_PATH];
     
@@ -64,7 +76,17 @@ int ss_create_file(const char* filename, const char* owner) {
     return ERR_SUCCESS;
 }
 
-// Delete a file
+/**
+ * ss_delete_file
+ * @brief Delete the specified file and any associated metadata/undo files.
+ *
+ * Removes the file from disk and attempts to remove `.meta` and `.undo`
+ * auxiliary files. Returns an error if the primary file does not exist or the
+ * unlink operation fails.
+ *
+ * @param filename Null-terminated filename to delete.
+ * @return ERR_SUCCESS on success, or ERR_FILE_NOT_FOUND / ERR_FILE_OPERATION_FAILED.
+ */
 int ss_delete_file(const char* filename) {
     char filepath[MAX_PATH];
     char metapath[MAX_PATH];
@@ -100,7 +122,16 @@ int ss_delete_file(const char* filename) {
     return ERR_SUCCESS;
 }
 
-// Read file content
+/**
+ * ss_read_file
+ * @brief Read the entire contents of `filename` into a malloc'd buffer.
+ *
+ * The caller is responsible for freeing `*content` on success.
+ *
+ * @param filename Null-terminated filename to read.
+ * @param content Out parameter; set to malloc'd buffer on success.
+ * @return ERR_SUCCESS on success, or ERR_FILE_NOT_FOUND / ERR_FILE_OPERATION_FAILED.
+ */
 int ss_read_file(const char* filename, char** content) {
     char filepath[MAX_PATH];
     
@@ -125,7 +156,19 @@ int ss_read_file(const char* filename, char** content) {
     return ERR_SUCCESS;
 }
 
-// Get file information
+/**
+ * ss_get_file_info
+ * @brief Populate basic statistics about `filename` (size, word count, chars).
+ *
+ * Reads the file contents to compute words and character counts. Caller must
+ * provide pointers for the output values.
+ *
+ * @param filename Null-terminated filename to inspect.
+ * @param size Out parameter for file size in bytes.
+ * @param words Out parameter for approximate word count.
+ * @param chars Out parameter for character count.
+ * @return ERR_SUCCESS on success, or ERR_FILE_NOT_FOUND / ERR_FILE_OPERATION_FAILED.
+ */
 int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
     char filepath[MAX_PATH];
     
@@ -164,7 +207,16 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
     return ERR_SUCCESS;
 }
 
-// Save file metadata
+/**
+ * save_file_metadata
+ * @brief Write basic metadata for `filename` into a `.meta` file.
+ *
+ * Writes owner, creation and modification timestamps. Errors are logged but
+ * not returned to callers.
+ *
+ * @param filename Null-terminated filename to describe.
+ * @param owner Null-terminated owner username.
+ */
 void save_file_metadata(const char* filename, const char* owner) {
     char metapath[MAX_PATH];
     

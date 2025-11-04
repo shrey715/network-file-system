@@ -1,6 +1,19 @@
 #include "common.h"
 
-// Send a complete message (header + payload)
+/**
+ * send_message
+ * @brief Send a framed message over a connected socket.
+ *
+ * Writes the fixed-size MessageHeader first followed by the optional payload
+ * bytes specified by header->data_length. The function performs blocking
+ * sends and returns 0 on success.
+ *
+ * @param sockfd Connected socket file descriptor.
+ * @param header Pointer to an initialized MessageHeader to send.
+ * @param payload Optional pointer to payload data; may be NULL when
+ *                header->data_length == 0.
+ * @return 0 on success, -1 on error (and errno will be set by system calls).
+ */
 int send_message(int sockfd, MessageHeader* header, const char* payload) {
     // Send header first
     ssize_t sent = send(sockfd, header, sizeof(MessageHeader), 0);
@@ -21,8 +34,28 @@ int send_message(int sockfd, MessageHeader* header, const char* payload) {
     return 0;
 }
 
-// Receive a complete message (header + payload)
+/**
+ * recv_message
+ * @brief Receive a framed message from a connected socket.
+ *
+ * Reads the MessageHeader using MSG_WAITALL and then allocates a buffer for
+ * the payload if header->data_length > 0. The allocated buffer will be
+ * null-terminated and must be freed by the caller (or set to NULL when no
+ * payload exists).
+ *
+ * @param sockfd Connected socket file descriptor.
+ * @param header Pointer to storage for the received MessageHeader.
+ * @param payload Out parameter; on success points to malloc'd buffer
+ *                (caller must free) or NULL when no payload.
+ * @return Number of payload bytes received (>0), 0 on orderly shutdown,
+ *         or negative on error.
+ */
 int recv_message(int sockfd, MessageHeader* header, char** payload) {
+    // Initialize payload to NULL
+    if (payload) {
+        *payload = NULL;
+    }
+    
     // Receive header
     ssize_t received = recv(sockfd, header, sizeof(MessageHeader), MSG_WAITALL);
     if (received <= 0) {
@@ -31,7 +64,7 @@ int recv_message(int sockfd, MessageHeader* header, char** payload) {
     }
     
     // Receive payload if exists
-    if (header->data_length > 0) {
+    if (payload && header->data_length > 0) {
         *payload = (char*)malloc(header->data_length + 1);
         if (*payload == NULL) {
             perror("malloc failed");
@@ -47,14 +80,23 @@ int recv_message(int sockfd, MessageHeader* header, char** payload) {
         }
         
         (*payload)[header->data_length] = '\0';
-    } else {
+    } else if (payload) {
         *payload = NULL;
     }
     
     return received;
 }
 
-// Create a server socket and bind to port
+/**
+ * create_server_socket
+ * @brief Create, bind and listen on a TCP server socket for the given port.
+ *
+ * The created socket is configured with SO_REUSEADDR and set to listen with
+ * a modest backlog. The caller is responsible for closing the returned fd.
+ *
+ * @param port Port number to bind the server socket to (host byte order).
+ * @return Listening socket fd on success, or -1 on failure.
+ */
 int create_server_socket(int port) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
@@ -93,7 +135,14 @@ int create_server_socket(int port) {
     return sockfd;
 }
 
-// Connect to a server
+/**
+ * connect_to_server
+ * @brief Establish a TCP connection to the specified IPv4 address and port.
+ *
+ * @param ip Null-terminated IPv4 address string (e.g., "127.0.0.1").
+ * @param port Destination port in host byte order.
+ * @return Connected socket fd on success, or -1 on failure.
+ */
 int connect_to_server(const char* ip, int port) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {

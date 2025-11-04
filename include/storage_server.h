@@ -40,6 +40,32 @@ typedef struct {
     time_t start_time;
 } WriteSession;
 
+// ======= LOCK REGISTRY =======
+#define MAX_LOCKED_FILES 50
+
+typedef struct {
+    char filename[MAX_FILENAME];
+    char username[MAX_USERNAME];
+    int sentence_index;
+    Sentence* sentences;
+    int sentence_count;
+    time_t lock_time;
+    int is_active;
+} LockedFileEntry;
+
+typedef struct {
+    LockedFileEntry entries[MAX_LOCKED_FILES];
+    pthread_mutex_t lock;
+} LockedFileRegistry;
+
+// Lock registry API
+int init_locked_file_registry(void);
+LockedFileEntry* find_locked_file(const char* filename, const char* username);
+int add_locked_file(const char* filename, const char* username, int sentence_idx, 
+                    Sentence* sentences, int count);
+int remove_locked_file(const char* filename, const char* username);
+void cleanup_locked_file_registry(void);
+
 // ============ FUNCTION DECLARATIONS ============
 
 // File operations

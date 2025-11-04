@@ -3,7 +3,21 @@
 
 extern NameServerState ns_state;
 
-// Handle client/SS connection
+/**
+ * handle_client_connection
+ * @brief Thread entry point to process messages from a connected client or
+ *        storage-server registration/forwarding requests.
+ *
+ * This function loops receiving framed messages from the connected socket and
+ * dispatches actions based on the `op_code` in the message header. It may
+ * forward requests to storage servers (for create/delete) or return storage
+ * server connection info for read/write operations. The function sends
+ * responses back on the same socket.
+ *
+ * @param arg Pointer to an allocated int containing the accepted socket fd.
+ *            The function takes ownership and frees it.
+ * @return Always returns NULL when the thread exits.
+ */
 void* handle_client_connection(void* arg) {
     int client_fd = *(int*)arg;
     free(arg);
@@ -496,7 +510,17 @@ void* handle_client_connection(void* arg) {
     return NULL;
 }
 
-// Handle storage server connection (for ongoing communication)
+/**
+ * handle_ss_connection
+ * @brief Thread entry point to handle connections from a Storage Server.
+ *
+ * Currently handles simple heartbeat messages and acknowledges them. This
+ * function can be extended to process other NM<->SS control messages.
+ *
+ * @param arg Pointer to an allocated int containing the accepted socket fd.
+ *            The function takes ownership and frees it.
+ * @return Always returns NULL when the thread exits.
+ */
 void* handle_ss_connection(void* arg) {
     int ss_fd = *(int*)arg;
     free(arg);

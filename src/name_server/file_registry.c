@@ -4,7 +4,20 @@
 
 extern NameServerState ns_state;
 
-// Register a new file in the system
+/**
+ * nm_register_file
+ * @brief Register a new file in the Name Server registry and persist state.
+ *
+ * Creates a FileMetadata entry for `filename`, sets the owner and assigns the
+ * storage server id where the file will reside. Initializes basic counters
+ * and an ACL entry granting the owner full read/write permissions.
+ *
+ * @param filename Null-terminated name of the file to register.
+ * @param owner Null-terminated username who will own the file.
+ * @param ss_id ID of the Storage Server assigned to hold the file.
+ * @return ERR_SUCCESS on success, or an ERR_* code on failure (e.g.
+ *         ERR_FILE_EXISTS, ERR_FILE_OPERATION_FAILED).
+ */
 int nm_register_file(const char* filename, const char* owner, int ss_id) {
     pthread_mutex_lock(&ns_state.lock);
     
@@ -54,7 +67,17 @@ int nm_register_file(const char* filename, const char* owner, int ss_id) {
     return ERR_SUCCESS;
 }
 
-// Find a file by name
+/**
+ * nm_find_file
+ * @brief Look up a file by its filename in the in-memory registry.
+ *
+ * This performs a linear search through the registered files and returns a
+ * pointer to the FileMetadata if found. The caller must not free the returned
+ * pointer.
+ *
+ * @param filename Null-terminated filename to search for.
+ * @return Pointer to FileMetadata on success, or NULL if not found.
+ */
 FileMetadata* nm_find_file(const char* filename) {
     for (int i = 0; i < ns_state.file_count; i++) {
         if (strcmp(ns_state.files[i].filename, filename) == 0) {
@@ -64,7 +87,17 @@ FileMetadata* nm_find_file(const char* filename) {
     return NULL;
 }
 
-// Delete a file from registry
+/**
+ * nm_delete_file
+ * @brief Remove a file entry from the registry and persist the change.
+ *
+ * Frees any ACL memory for the deleted file and compacts the in-memory
+ * array of files. If the file isn't found, returns an error.
+ *
+ * @param filename Null-terminated filename to remove.
+ * @return ERR_SUCCESS on success, or ERR_FILE_NOT_FOUND if the file
+ *         does not exist.
+ */
 int nm_delete_file(const char* filename) {
     pthread_mutex_lock(&ns_state.lock);
     
@@ -103,7 +136,19 @@ int nm_delete_file(const char* filename) {
     return ERR_SUCCESS;
 }
 
-// Check if user has permission to access file
+/**
+ * nm_check_permission
+ * @brief Verify whether `username` has read/write access to `filename`.
+ *
+ * Looks up the file and its ACL entries. If `need_write` is non-zero, the
+ * function checks write permission; otherwise it checks read permission.
+ *
+ * @param filename Null-terminated filename to check.
+ * @param username Null-terminated username requesting access.
+ * @param need_write Non-zero to require write permission, zero to require read.
+ * @return ERR_SUCCESS if permission granted, ERR_PERMISSION_DENIED if not,
+ *         or ERR_FILE_NOT_FOUND if the file does not exist.
+ */
 int nm_check_permission(const char* filename, const char* username, int need_write) {
     pthread_mutex_lock(&ns_state.lock);
     
@@ -132,7 +177,23 @@ int nm_check_permission(const char* filename, const char* username, int need_wri
     return ERR_PERMISSION_DENIED;
 }
 
-// Register a storage server
+/**
+ * nm_register_storage_server
+ * @brief Register or update a Storage Server's information in the Name Server.
+ *
+ * Adds a new StorageServerInfo entry or updates an existing one if the
+ * `server_id` is already present. Marks the server active and records
+ * heartbeat time. Does not verify network reachability.
+ *
+ * @param server_id Numeric identifier for the storage server.
+ * @param ip Null-terminated IPv4 address string for the storage server.
+ * @param nm_port Port number the storage server uses to contact NM (unused by
+ *                some workflows but stored for completeness).
+ * @param client_port Port number clients should use to contact the storage
+ *                    server for data operations.
+ * @return ERR_SUCCESS on success, or ERR_FILE_OPERATION_FAILED if registry
+ *         capacity is exhausted.
+ */
 int nm_register_storage_server(int server_id, const char* ip, int nm_port, int client_port) {
     pthread_mutex_lock(&ns_state.lock);
     
@@ -178,7 +239,16 @@ int nm_register_storage_server(int server_id, const char* ip, int nm_port, int c
     return ERR_SUCCESS;
 }
 
-// Find storage server by ID
+/**
+ * nm_find_storage_server
+ * @brief Return a pointer to a registered, active Storage Server by id.
+ *
+ * This function searches the in-memory storage server list and returns a
+ * pointer to the StorageServerInfo if it exists and is active.
+ *
+ * @param ss_id Storage server id to look up.
+ * @return Pointer to StorageServerInfo or NULL if not found/active.
+ */
 StorageServerInfo* nm_find_storage_server(int ss_id) {
     for (int i = 0; i < ns_state.ss_count; i++) {
         if (ns_state.storage_servers[i].server_id == ss_id && 
@@ -189,7 +259,15 @@ StorageServerInfo* nm_find_storage_server(int ss_id) {
     return NULL;
 }
 
-// Select a storage server for new file (simple round-robin)
+/**
+ * nm_select_storage_server
+ * @brief Choose an active storage server using a simple round-robin policy.
+ *
+ * Returns the server id of the selected storage server, or -1 if no active
+ * storage servers are available.
+ *
+ * @return Storage server id >= 0 when successful, -1 on failure.
+ */
 int nm_select_storage_server(void) {
     static int last_selected = 0;
     
@@ -215,7 +293,19 @@ int nm_select_storage_server(void) {
     return -1;
 }
 
-// Add access control entry
+/**
+ * nm_add_access
+ * @brief Add or update an ACL entry for a file.
+ *
+ * If `username` already exists in the file's ACL, permissions are updated.
+ * Otherwise a new ACL entry is appended.
+ *
+ * @param filename Null-terminated filename to modify.
+ * @param username Null-terminated username to add/update.
+ * @param read Integer flag (0/1) to grant read permission.
+ * @param write Integer flag (0/1) to grant write permission.
+ * @return ERR_SUCCESS on success, or ERR_FILE_NOT_FOUND if file doesn't exist.
+ */
 int nm_add_access(const char* filename, const char* username, int read, int write) {
     pthread_mutex_lock(&ns_state.lock);
     
@@ -256,7 +346,18 @@ int nm_add_access(const char* filename, const char* username, int read, int writ
     return ERR_SUCCESS;
 }
 
-// Remove access control entry
+/**
+ * nm_remove_access
+ * @brief Remove an ACL entry for `username` on `filename`.
+ *
+ * The file owner cannot be removed. Returns an error when the user is not
+ * present in the ACL or the file does not exist.
+ *
+ * @param filename Null-terminated filename to modify.
+ * @param username Null-terminated username to remove from ACL.
+ * @return ERR_SUCCESS on success, or ERR_USER_NOT_FOUND / ERR_PERMISSION_DENIED
+ *         / ERR_FILE_NOT_FOUND on failure.
+ */
 int nm_remove_access(const char* filename, const char* username) {
     pthread_mutex_lock(&ns_state.lock);
     
@@ -303,7 +404,13 @@ int nm_remove_access(const char* filename, const char* username) {
     return ERR_SUCCESS;
 }
 
-// Save state to disk
+/**
+ * save_state
+ * @brief Persist the in-memory Name Server registry to disk (`data/nm_state.dat`).
+ *
+ * The file format is simple and intended only for recovery between runs. If
+ * writing fails the function returns silently; callers should log if needed.
+ */
 void save_state(void) {
     FILE* f = fopen("data/nm_state.dat", "w");
     if (!f) return;
@@ -327,7 +434,15 @@ void save_state(void) {
     fclose(f);
 }
 
-// Load state from disk
+/**
+ * load_state
+ * @brief Load the Name Server registry from disk (`data/nm_state.dat`) into
+ *        memory.
+ *
+ * If the state file is missing the function does nothing. Any malformed
+ * entries may produce undefined behavior; the format is expected to match
+ * `save_state`'s output.
+ */
 void load_state(void) {
     FILE* f = fopen("data/nm_state.dat", "r");
     if (!f) return;
