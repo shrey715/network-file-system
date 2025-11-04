@@ -1,38 +1,37 @@
-# Binaries
-name_server
-storage_server
-client
+# === Build Artifacts ===
+# Ignore only top-level binaries
+/client
+/name_server
+/storage_server
 
-# Object files
+# Object and library files
 *.o
 *.so
 *.a
 
-# Data and logs
+# === Data and Logs ===
 data/*
 logs/*
-
-# Keep directory structure
 !data/.gitkeep
 !logs/.gitkeep
 
-# Temporary files
+# === Temporary Files ===
 *.tmp
 *.swp
 *.swo
 *~
 .DS_Store
 
-# Debug files
+# === Debug Files ===
 *.dSYM/
 *.gdb_history
 core
 vgcore.*
 
-# IDE files
+# === IDE / Editor Files ===
 .vscode/
 .idea/
 *.sublime-*
 
-# Test outputs
+# === Test Outputs ===
 /tmp/demo_commands.txt
