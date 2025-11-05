@@ -549,7 +549,7 @@ int ss_stream_file(int client_socket, const char* filename) {
     }
     
     // Tokenize and send word by word
-    char* word = strtok(content, " \t\n");
+    char* word = strtok(content, " \t");
     while (word != NULL) {
         MessageHeader header;
         memset(&header, 0, sizeof(header));
@@ -561,7 +561,7 @@ int ss_stream_file(int client_socket, const char* filename) {
         // Sleep for 0.1 seconds
         usleep(100000);
         
-        word = strtok(NULL, " \t\n");
+        word = strtok(NULL, " \t");
     }
     
     // Send STOP message
