@@ -46,16 +46,27 @@ int parse_sentences(const char* text, Sentence** sentences) {
             strncpy((*sentences)[count].text, start, len);
             (*sentences)[count].text[len] = '\0';
             
+            // Capture trailing whitespace after the delimiter (spaces, tabs, newlines)
+            p++; // move past the delimiter
+            const char* ws_start = p;
+            while (*p && (*p == ' ' || *p == '\n' || *p == '\t' || *p == '\r')) p++;
+            int ws_len = p - ws_start;
+            if (ws_len > 0) {
+                (*sentences)[count].trailing_ws = (char*)malloc(ws_len + 1);
+                strncpy((*sentences)[count].trailing_ws, ws_start, ws_len);
+                (*sentences)[count].trailing_ws[ws_len] = '\0';
+            } else {
+                (*sentences)[count].trailing_ws = strdup("");
+            }
+
             // Initialize lock
             pthread_mutex_init(&(*sentences)[count].lock, NULL);
             (*sentences)[count].locked_by[0] = '\0';
             (*sentences)[count].is_locked = 0;
-            
+
             count++;
-            
-            // Move past delimiter and whitespace
-            p++;
-            while (*p == ' ' || *p == '\n' || *p == '\t') p++;
+
+            // Set next sentence start
             start = p;
         } else {
             p++;
@@ -70,6 +81,8 @@ int parse_sentences(const char* text, Sentence** sentences) {
         }
         
         (*sentences)[count].text = strdup(start);
+        // No trailing whitespace for the last (incomplete) sentence
+        (*sentences)[count].trailing_ws = strdup("");
         pthread_mutex_init(&(*sentences)[count].lock, NULL);
         (*sentences)[count].locked_by[0] = '\0';
         (*sentences)[count].is_locked = 0;
@@ -164,6 +177,9 @@ void free_sentences(Sentence* sentences, int count) {
         if (sentences[i].text) {
             free(sentences[i].text);
         }
+        if (sentences[i].trailing_ws) {
+            free(sentences[i].trailing_ws);
+        }
         pthread_mutex_destroy(&sentences[i].lock);
     }
     free(sentences);
@@ -221,6 +237,7 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
             count = 1;
             sentences = (Sentence*)malloc(sizeof(Sentence));
             sentences[0].text = strdup("");
+            sentences[0].trailing_ws = strdup("");
             pthread_mutex_init(&sentences[0].lock, NULL);
             sentences[0].locked_by[0] = '\0';
             sentences[0].is_locked = 0;
@@ -412,8 +429,9 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
     char new_content[BUFFER_SIZE * 10] = "";
     for (int i = 0; i < entry->sentence_count; i++) {
         strcat(new_content, entry->sentences[i].text);
-        if (i < entry->sentence_count - 1) {
-            strcat(new_content, "\n");
+        // Preserve the original trailing whitespace captured during parsing
+        if (entry->sentences[i].trailing_ws && strlen(entry->sentences[i].trailing_ws) > 0) {
+            strcat(new_content, entry->sentences[i].trailing_ws);
         }
     }
 
@@ -648,19 +666,53 @@ void* handle_client_request(void* arg) {
             }
             
             case OP_SS_WRITE_WORD: {
-                // Payload format: "word_index new_word"
-                int word_idx;
-                char new_word[256];
-                sscanf(payload, "%d %s", &word_idx, new_word);
-                
-                int result = ss_write_word(header.filename, header.sentence_index, 
-                                          word_idx, new_word, header.username);
+                // Payload format: "word_index <new_word...>" - capture rest of line
+                if (!payload) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_INVALID_WORD;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+
+                char* space_ptr = strchr(payload, ' ');
+                if (!space_ptr) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_INVALID_WORD;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+
+                int word_idx = atoi(payload);
+                space_ptr++; // move to start of new_word
+                while (*space_ptr == ' ' || *space_ptr == '\t') space_ptr++;
+
+                // Trim trailing newline/carriage return
+                char* endp = space_ptr + strlen(space_ptr) - 1;
+                while (endp >= space_ptr && (*endp == '\n' || *endp == '\r')) {
+                    *endp = '\0';
+                    endp--;
+                }
+
+                char* new_word = strdup(space_ptr);
+                if (!new_word) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_OPERATION_FAILED;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+
+                int result = ss_write_word(header.filename, header.sentence_index,
+                                           word_idx, new_word, header.username);
+                free(new_word);
+
                 header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
                 header.error_code = result;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
                 // Keep connection alive for more WRITE_WORD or WRITE_UNLOCK
-                // keep_alive = 1 (already set)
                 break;
             }
             

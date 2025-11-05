@@ -8,6 +8,7 @@
 // Sentence structure with locking
 typedef struct {
     char* text;
+    char* trailing_ws; // whitespace (spaces/newlines) that followed the sentence delimiter
     pthread_mutex_t lock;
     char locked_by[MAX_USERNAME];
     int is_locked;
