@@ -42,32 +42,29 @@ typedef struct {
 } WriteSession;
 
 // ======= LOCK REGISTRY =======
-#define MAX_LOCKED_FILES 50
+#define MAX_LOCKED_FILES 100
 
 typedef struct {
     char filename[MAX_FILENAME];
     char username[MAX_USERNAME];
-    int sentence_index;
+    int sentence_idx;
     Sentence* sentences;
     int sentence_count;
-    time_t lock_time;
     int is_active;
-} LockedFileEntry;
-
-typedef struct {
-    LockedFileEntry entries[MAX_LOCKED_FILES];
-    pthread_mutex_t lock;
-} LockedFileRegistry;
-
-// Lock registry API
-int init_locked_file_registry(void);
-LockedFileEntry* find_locked_file(const char* filename, const char* username);
-int add_locked_file(const char* filename, const char* username, int sentence_idx, 
-                    Sentence* sentences, int count);
-int remove_locked_file(const char* filename, const char* username);
-void cleanup_locked_file_registry(void);
+} LockedFile;
 
 // ============ FUNCTION DECLARATIONS ============
+
+// Lock registry API
+void init_locked_file_registry(void);
+void cleanup_locked_file_registry(void);
+LockedFile* find_locked_file(const char* filename, const char* username);
+int add_locked_file(const char* filename, const char* username, int sentence_idx, 
+                    Sentence* sentences, int count);
+int check_lock(const char* filename, int sentence_idx, const char* username);
+int remove_lock(const char* filename, int sentence_idx);
+Sentence* get_locked_sentence(const char* filename, const char* username, int* count);
+int cleanup_user_locks(const char* username);
 
 // File operations
 int ss_create_file(const char* filename, const char* owner);

@@ -201,90 +201,133 @@ void free_sentences(Sentence* sentences, int count) {
  */
 int ss_write_lock(const char* filename, int sentence_idx, const char* username) {
     char filepath[MAX_PATH];
-    
-    // Initialize registry if needed
-    init_locked_file_registry();
-
-    // Safely construct the file path
     if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
         return ERR_FILE_OPERATION_FAILED;
     }
-
+    
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
     }
-
-    // Check if user already has a lock on this file
-    if (find_locked_file(filename, username) != NULL) {
-        return ERR_SENTENCE_LOCKED; // Already locked by this user
+    
+    // Check if already locked
+    int lock_status = check_lock(filename, sentence_idx, username);
+    if (lock_status == -1) {
+        return ERR_SENTENCE_LOCKED; // Locked by someone else
+    }
+    if (lock_status == 1) {
+        return ERR_SUCCESS; // Already locked by this user
     }
 
+    ss_save_undo(filename);
+    
     // Read current content
     char* content = read_file_content(filepath);
     if (!content) {
         return ERR_FILE_OPERATION_FAILED;
     }
-
+    
     // Parse into sentences
-    Sentence* sentences = NULL;
+    Sentence* sentences;
     int count = parse_sentences(content, &sentences);
-    free(content);
-
-    // Handle empty file - create a default empty sentence if trying to lock sentence 0
-    if (count == 0) {
-        if (sentence_idx == 0) {
-            // Create a single empty sentence for the user to edit
-            count = 1;
-            sentences = (Sentence*)malloc(sizeof(Sentence));
-            sentences[0].text = strdup("");
-            sentences[0].trailing_ws = strdup("");
-            pthread_mutex_init(&sentences[0].lock, NULL);
-            sentences[0].locked_by[0] = '\0';
-            sentences[0].is_locked = 0;
-            
-            log_message("SS", "INFO", "Created empty sentence for empty file");
-        } else {
-            log_message("SS", "ERROR", "File is empty - can only lock sentence 0");
+    
+    // SPECIAL CASE: Empty file and requesting sentence 0
+    if (count == 0 && sentence_idx == 0) {
+        free(content);
+        
+        // Create a single empty sentence
+        sentences = (Sentence*)malloc(sizeof(Sentence));
+        sentences[0].text = strdup("");
+        sentences[0].trailing_ws = strdup("");
+        pthread_mutex_init(&sentences[0].lock, NULL);
+        sentences[0].locked_by[0] = '\0';
+        sentences[0].is_locked = 0;
+        count = 1;
+        
+        // Add to global lock registry
+        int result = add_locked_file(filename, username, sentence_idx, sentences, count);
+        
+        if (result != 0) {
+            free_sentences(sentences, count);
+            return ERR_FILE_OPERATION_FAILED;
+        }
+        
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Locked empty file %s (sentence 0) by %s", 
+                 filename, username);
+        log_message("SS", "INFO", msg);
+        
+        return ERR_SUCCESS;
+    }
+    
+    // SPECIAL CASE: Appending a new sentence (sentence_idx == count)
+    // This is ONLY allowed if the last sentence ends with a delimiter
+    if (sentence_idx == count && count > 0) {
+        // Check if the last sentence ends with a delimiter
+        char* last_text = sentences[count - 1].text;
+        int last_len = strlen(last_text);
+        
+        int has_delimiter = 0;
+        if (last_len > 0) {
+            char last_char = last_text[last_len - 1];
+            if (last_char == '.' || last_char == '!' || last_char == '?') {
+                has_delimiter = 1;
+            }
+        }
+        
+        if (!has_delimiter) {
+            // Last sentence doesn't end with delimiter - cannot append
+            free(content);
+            free_sentences(sentences, count);
             return ERR_INVALID_SENTENCE;
         }
-    }
-
-    // Validate sentence index
-    if (sentence_idx < 0 || sentence_idx >= count) {
+        
+        free(content);
+        
+        // Expand sentence array to include new empty sentence
+        sentences = (Sentence*)realloc(sentences, sizeof(Sentence) * (count + 1));
+        sentences[count].text = strdup("");
+        sentences[count].trailing_ws = strdup("");
+        pthread_mutex_init(&sentences[count].lock, NULL);
+        sentences[count].locked_by[0] = '\0';
+        sentences[count].is_locked = 0;
+        count++;
+        
+        // Add to global lock registry
+        int result = add_locked_file(filename, username, sentence_idx, sentences, count);
+        
+        if (result != 0) {
+            free_sentences(sentences, count);
+            return ERR_FILE_OPERATION_FAILED;
+        }
+        
         char msg[256];
-        snprintf(msg, sizeof(msg), "Invalid sentence index %d (file has %d sentences)", 
-                 sentence_idx, count);
-        log_message("SS", "ERROR", msg);
+        snprintf(msg, sizeof(msg), "Locked new sentence %d in %s by %s (appending)", 
+                 sentence_idx, filename, username);
+        log_message("SS", "INFO", msg);
+        
+        return ERR_SUCCESS;
+    }
+    
+    free(content);
+    
+    if (sentence_idx < 0 || sentence_idx >= count) {
         free_sentences(sentences, count);
         return ERR_INVALID_SENTENCE;
     }
-
-    // Check if sentence is already locked by another user
-    Sentence* target = &sentences[sentence_idx];
-    if (target->is_locked && strcmp(target->locked_by, username) != 0) {
-        free_sentences(sentences, count);
-        return ERR_SENTENCE_LOCKED;
-    }
-
-    // Acquire lock
-    target->is_locked = 1;
-    strncpy(target->locked_by, username, MAX_USERNAME - 1);
-
-    // Save undo snapshot before any modifications
-    ss_save_undo(filename);
-
-    // Add to global registry
+    
+    // Add to global lock registry
     int result = add_locked_file(filename, username, sentence_idx, sentences, count);
-    if (result != ERR_SUCCESS) {
+    
+    if (result != 0) {
         free_sentences(sentences, count);
-        return result;
+        return ERR_FILE_OPERATION_FAILED;
     }
-
+    
     char msg[256];
-    snprintf(msg, sizeof(msg), "Locked sentence %d in '%s' for user '%s'", 
+    snprintf(msg, sizeof(msg), "Locked sentence %d in %s by %s", 
              sentence_idx, filename, username);
     log_message("SS", "INFO", msg);
-
+    
     return ERR_SUCCESS;
 }
 
@@ -305,90 +348,119 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
  */
 int ss_write_word(const char* filename, int sentence_idx, int word_idx, 
                   const char* new_word, const char* username) {
-    // Find locked file entry
-    LockedFileEntry* entry = find_locked_file(filename, username);
-    if (!entry) {
-        return ERR_PERMISSION_DENIED; // No lock held
-    }
-
-    // Verify sentence index matches
-    if (entry->sentence_index != sentence_idx) {
-        return ERR_INVALID_SENTENCE;
-    }
-
-    // Validate sentence index
-    if (sentence_idx < 0 || sentence_idx >= entry->sentence_count) {
-        return ERR_INVALID_SENTENCE;
-    }
-
-    Sentence* target = &entry->sentences[sentence_idx];
-
-    // Verify lock ownership
-    if (!target->is_locked || strcmp(target->locked_by, username) != 0) {
-        return ERR_PERMISSION_DENIED;
-    }
-
-    // Split sentence into words
-    char* sentence_copy = strdup(target->text);
-    if (!sentence_copy) {
+    char filepath[MAX_PATH];
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
         return ERR_FILE_OPERATION_FAILED;
     }
-
+    
+    // Check lock using global registry
+    int lock_status = check_lock(filename, sentence_idx, username);
+    if (lock_status != 1) {
+        return lock_status == -1 ? ERR_SENTENCE_LOCKED : ERR_PERMISSION_DENIED;
+    }
+    
+    // Get locked sentence from registry
+    int locked_count = 0;
+    Sentence* locked_sentences = get_locked_sentence(filename, username, &locked_count);
+    
+    if (!locked_sentences || sentence_idx >= locked_count) {
+        return ERR_INVALID_SENTENCE;
+    }
+    
+    // Get the target sentence
+    Sentence* target_sentence = &locked_sentences[sentence_idx];
+    
+    // Split sentence into words
+    char sentence_copy[BUFFER_SIZE];
+    strncpy(sentence_copy, target_sentence->text, BUFFER_SIZE - 1);
+    sentence_copy[BUFFER_SIZE - 1] = '\0';
+    
     char* words[100];
     int word_count = 0;
-    char* token = strtok(sentence_copy, " \t\n");
-    while (token != NULL && word_count < 100) {
-        words[word_count++] = strdup(token);
-        token = strtok(NULL, " \t\n");
+    
+    // SPECIAL CASE: Empty sentence
+    if (strlen(sentence_copy) == 0) {
+        // Allow only word_idx 0 for empty sentence
+        if (word_idx != 0) {
+            return ERR_INVALID_WORD;
+        }
+        word_count = 0;
+    } else {
+        // Tokenize by spaces/tabs/newlines
+        char* token = strtok(sentence_copy, " \t\n");
+        while (token != NULL && word_count < 100) {
+            words[word_count++] = strdup(token);
+            token = strtok(NULL, " \t\n");
+        }
     }
-    free(sentence_copy);
-
-    // Validate word index - allow appending (word_idx == word_count)
+    
+    // Validate word index (allow up to word_count for appending)
     if (word_idx < 0 || word_idx > word_count) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), 
-                 "Invalid word index %d (sentence has %d words, valid range: 0-%d for replace, %d for append)", 
-                 word_idx, word_count, word_count - 1, word_count);
-        log_message("SS", "ERROR", msg);
         for (int i = 0; i < word_count; i++) free(words[i]);
         return ERR_INVALID_WORD;
     }
-
-    // Replace or append the word
-    if (word_idx < word_count) {
-        // Replace existing word
-        free(words[word_idx]);
-        words[word_idx] = strdup(new_word);
-    } else {
-        // Append new word (word_idx == word_count)
-        if (word_count >= 100) {
-            for (int i = 0; i < word_count; i++) free(words[i]);
-            return ERR_FILE_OPERATION_FAILED; // Too many words
-        }
-        words[word_count++] = strdup(new_word);
+    
+    // Split new_word by spaces to handle multi-word input
+    char new_word_copy[BUFFER_SIZE];
+    strncpy(new_word_copy, new_word, BUFFER_SIZE - 1);
+    new_word_copy[BUFFER_SIZE - 1] = '\0';
+    
+    char* new_words[100];
+    int new_word_count = 0;
+    
+    char* new_token = strtok(new_word_copy, " \t\n");
+    while (new_token != NULL && new_word_count < 100) {
+        new_words[new_word_count++] = strdup(new_token);
+        new_token = strtok(NULL, " \t\n");
     }
-
-    // Rebuild sentence
+    
+    // Prepare final word array using INSERT semantics
+    char* final_words[100];
+    int final_count = 0;
+    
+    // Copy words before word_idx
+    for (int i = 0; i < word_idx && final_count < 100; i++) {
+        final_words[final_count++] = strdup(words[i]);
+    }
+    
+    // Insert all new words at word_idx
+    for (int i = 0; i < new_word_count && final_count < 100; i++) {
+        final_words[final_count++] = strdup(new_words[i]);
+    }
+    
+    // Copy remaining words after word_idx (INCLUDING the word at word_idx)
+    for (int i = word_idx; i < word_count && final_count < 100; i++) {
+        final_words[final_count++] = strdup(words[i]);
+    }
+    
+    // Clean up temporary arrays
+    for (int i = 0; i < word_count; i++) free(words[i]);
+    for (int i = 0; i < new_word_count; i++) free(new_words[i]);
+    
+    // Rebuild sentence from final_words
     char new_sentence[BUFFER_SIZE] = "";
-    for (int i = 0; i < word_count; i++) {
+    for (int i = 0; i < final_count; i++) {
         if (i > 0) strcat(new_sentence, " ");
-        strcat(new_sentence, words[i]);
+        strcat(new_sentence, final_words[i]);
     }
-
-    // Update sentence in memory
-    free(target->text);
-    target->text = strdup(new_sentence);
-
-    // Cleanup
-    for (int i = 0; i < word_count; i++) {
-        free(words[i]);
+    
+    // Clean up final_words
+    for (int i = 0; i < final_count; i++) free(final_words[i]);
+    
+    // Update sentence in locked registry
+    free(target_sentence->text);
+    target_sentence->text = strdup(new_sentence);
+    
+    // Rebuild full file content from ALL locked sentences
+    char new_content[BUFFER_SIZE * 10] = "";
+    for (int i = 0; i < locked_count; i++) {
+        if (i > 0) strcat(new_content, " ");
+        strcat(new_content, locked_sentences[i].text);
     }
-
-    char msg[256];
-    snprintf(msg, sizeof(msg), "Modified word %d in sentence %d of '%s'", 
-             word_idx, sentence_idx, filename);
-    log_message("SS", "INFO", msg);
-
+    
+    // Write back to file
+    write_file_content(filepath, new_content);
+    
     return ERR_SUCCESS;
 }
 
@@ -408,39 +480,49 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
  */
 int ss_write_unlock(const char* filename, int sentence_idx, const char* username) {
     char filepath[MAX_PATH];
-    
-    // Find locked file entry
-    LockedFileEntry* entry = find_locked_file(filename, username);
-    if (!entry) {
-        return ERR_PERMISSION_DENIED; // No lock held
-    }
-
-    // Verify sentence index
-    if (entry->sentence_index != sentence_idx) {
-        return ERR_INVALID_SENTENCE;
-    }
-
-    // Safely construct the file path
     if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
         return ERR_FILE_OPERATION_FAILED;
     }
-
-    // Rebuild full file content with all sentences
-    char new_content[BUFFER_SIZE * 10] = "";
-    for (int i = 0; i < entry->sentence_count; i++) {
-        strcat(new_content, entry->sentences[i].text);
-        // Preserve the original trailing whitespace captured during parsing
-        if (entry->sentences[i].trailing_ws && strlen(entry->sentences[i].trailing_ws) > 0) {
-            strcat(new_content, entry->sentences[i].trailing_ws);
-        }
+    
+    if (!file_exists(filepath)) {
+        return ERR_FILE_NOT_FOUND;
     }
-
-    // Write back to file
-    int result = write_file_content(filepath, new_content);
-    if (result != 0) {
+    
+    // Check lock ownership
+    int lock_status = check_lock(filename, sentence_idx, username);
+    if (lock_status != 1) {
+        return ERR_PERMISSION_DENIED;
+    }
+    
+    // Read current content
+    char* content = read_file_content(filepath);
+    if (!content) {
+        remove_lock(filename, sentence_idx);
         return ERR_FILE_OPERATION_FAILED;
     }
-
+    
+    // RE-PARSE to handle any new delimiters created during editing
+    Sentence* sentences;
+    int new_count = parse_sentences(content, &sentences);
+    
+    // Rebuild content with proper sentence formatting
+    char final_content[BUFFER_SIZE * 10] = "";
+    for (int i = 0; i < new_count; i++) {
+        if (i > 0) strcat(final_content, " ");
+        strcat(final_content, sentences[i].text);
+    }
+    
+    // Write back properly formatted content
+    write_file_content(filepath, final_content);
+    
+    free(content);
+    free_sentences(sentences, new_count);
+    
+    // Remove lock from global registry
+    if (remove_lock(filename, sentence_idx) != 0) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
     // Update metadata
     char metapath[MAX_PATH];
     if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") == ERR_SUCCESS) {
@@ -450,14 +532,12 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
             fclose(f);
         }
     }
-
-    // Remove from registry (this frees the sentences)
-    remove_locked_file(filename, username);
-
+    
     char msg[256];
-    snprintf(msg, sizeof(msg), "Write completed on '%s' by '%s'", filename, username);
+    snprintf(msg, sizeof(msg), "Write completed: %s sentence %d by %s (re-parsed to %d sentences)", 
+             filename, sentence_idx, username, new_count);
     log_message("SS", "INFO", msg);
-
+    
     return ERR_SUCCESS;
 }
 

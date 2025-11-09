@@ -15,6 +15,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <signal.h>
 
 // ============ CONSTANTS ============
 #define MAX_FILENAME 256
