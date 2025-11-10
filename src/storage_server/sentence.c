@@ -370,10 +370,11 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
     // Get the target sentence
     Sentence* target_sentence = &locked_sentences[sentence_idx];
     
-    // Split sentence into words
-    char sentence_copy[BUFFER_SIZE];
-    strncpy(sentence_copy, target_sentence->text, BUFFER_SIZE - 1);
-    sentence_copy[BUFFER_SIZE - 1] = '\0';
+    // Split sentence into words (use dynamic copy to avoid truncation)
+    char* sentence_copy = strdup(target_sentence->text);
+    if (!sentence_copy) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     char* words[100];
     int word_count = 0;
@@ -382,6 +383,7 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
     if (strlen(sentence_copy) == 0) {
         // Allow only word_idx 0 for empty sentence
         if (word_idx != 0) {
+            free(sentence_copy);
             return ERR_INVALID_WORD;
         }
         word_count = 0;
@@ -394,16 +396,20 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
         }
     }
     
+    free(sentence_copy);
+    
     // Validate word index (allow up to word_count for appending)
     if (word_idx < 0 || word_idx > word_count) {
         for (int i = 0; i < word_count; i++) free(words[i]);
         return ERR_INVALID_WORD;
     }
     
-    // Split new_word by spaces to handle multi-word input
-    char new_word_copy[BUFFER_SIZE];
-    strncpy(new_word_copy, new_word, BUFFER_SIZE - 1);
-    new_word_copy[BUFFER_SIZE - 1] = '\0';
+    // Split new_word by spaces to handle multi-word input (use dynamic copy)
+    char* new_word_copy = strdup(new_word);
+    if (!new_word_copy) {
+        for (int i = 0; i < word_count; i++) free(words[i]);
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     char* new_words[100];
     int new_word_count = 0;
@@ -413,6 +419,8 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
         new_words[new_word_count++] = strdup(new_token);
         new_token = strtok(NULL, " \t\n");
     }
+    
+    free(new_word_copy);
     
     // Prepare final word array using INSERT semantics
     char* final_words[100];
@@ -437,8 +445,21 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
     for (int i = 0; i < word_count; i++) free(words[i]);
     for (int i = 0; i < new_word_count; i++) free(new_words[i]);
     
-    // Rebuild sentence from final_words
-    char new_sentence[BUFFER_SIZE] = "";
+    // Rebuild sentence from final_words with dynamic allocation
+    size_t new_sentence_size = 0;
+    for (int i = 0; i < final_count; i++) {
+        new_sentence_size += strlen(final_words[i]);
+        if (i > 0) new_sentence_size++; // space
+    }
+    new_sentence_size += 1; // null terminator
+    
+    char* new_sentence = (char*)malloc(new_sentence_size);
+    if (!new_sentence) {
+        for (int i = 0; i < final_count; i++) free(final_words[i]);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    new_sentence[0] = '\0';
     for (int i = 0; i < final_count; i++) {
         if (i > 0) strcat(new_sentence, " ");
         strcat(new_sentence, final_words[i]);
@@ -450,16 +471,39 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
     // Update sentence in locked registry
     free(target_sentence->text);
     target_sentence->text = strdup(new_sentence);
+    free(new_sentence);
     
     // Rebuild full file content from ALL locked sentences
-    char new_content[BUFFER_SIZE * 10] = "";
+    // Calculate required buffer size
+    size_t total_size = 0;
     for (int i = 0; i < locked_count; i++) {
-        if (i > 0) strcat(new_content, " ");
+        total_size += strlen(locked_sentences[i].text);
+        if (locked_sentences[i].trailing_ws) {
+            total_size += strlen(locked_sentences[i].trailing_ws);
+        }
+    }
+    total_size += 1; // null terminator
+    
+    char* new_content = (char*)malloc(total_size);
+    if (!new_content) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    new_content[0] = '\0';
+    for (int i = 0; i < locked_count; i++) {
         strcat(new_content, locked_sentences[i].text);
+        if (locked_sentences[i].trailing_ws) {
+            strcat(new_content, locked_sentences[i].trailing_ws);
+        }
     }
     
     // Write back to file
-    write_file_content(filepath, new_content);
+    int write_result = write_file_content(filepath, new_content);
+    free(new_content);
+    
+    if (write_result != 0) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     return ERR_SUCCESS;
 }
@@ -506,17 +550,43 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
     int new_count = parse_sentences(content, &sentences);
     
     // Rebuild content with proper sentence formatting
-    char final_content[BUFFER_SIZE * 10] = "";
+    // Calculate required buffer size
+    size_t total_size = 0;
     for (int i = 0; i < new_count; i++) {
-        if (i > 0) strcat(final_content, " ");
+        total_size += strlen(sentences[i].text);
+        if (sentences[i].trailing_ws) {
+            total_size += strlen(sentences[i].trailing_ws);
+        }
+    }
+    total_size += 1; // null terminator
+    
+    char* final_content = (char*)malloc(total_size);
+    if (!final_content) {
+        free(content);
+        free_sentences(sentences, new_count);
+        remove_lock(filename, sentence_idx);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    final_content[0] = '\0';
+    for (int i = 0; i < new_count; i++) {
         strcat(final_content, sentences[i].text);
+        if (sentences[i].trailing_ws) {
+            strcat(final_content, sentences[i].trailing_ws);
+        }
     }
     
     // Write back properly formatted content
-    write_file_content(filepath, final_content);
+    int write_result = write_file_content(filepath, final_content);
     
+    free(final_content);
     free(content);
     free_sentences(sentences, new_count);
+    
+    if (write_result != 0) {
+        remove_lock(filename, sentence_idx);
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     // Remove lock from global registry
     if (remove_lock(filename, sentence_idx) != 0) {

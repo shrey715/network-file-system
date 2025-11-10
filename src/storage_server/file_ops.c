@@ -199,9 +199,13 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
     
     // Count words (space-separated tokens)
     *words = 0;
-    char content_copy[BUFFER_SIZE];
-    strncpy(content_copy, content, BUFFER_SIZE - 1);
-    content_copy[BUFFER_SIZE - 1] = '\0';
+    
+    // Allocate a copy of the content for tokenization (strtok modifies the string)
+    char* content_copy = strdup(content);
+    if (!content_copy) {
+        free(content);
+        return ERR_FILE_OPERATION_FAILED;
+    }
     
     char* token = strtok(content_copy, " \t\n\r");
     while (token != NULL) {
@@ -209,6 +213,7 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
         token = strtok(NULL, " \t\n\r");
     }
     
+    free(content_copy);
     free(content);
     return ERR_SUCCESS;
 }

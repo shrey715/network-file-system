@@ -106,6 +106,42 @@ void* handle_client_connection(void* arg) {
                     if (!show_all && !has_access) continue;
                     
                     if (show_details) {
+                        // Refresh metadata from Storage Server before displaying
+                        StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
+                        if (ss && ss->is_active) {
+                            int ss_socket = connect_to_server(ss->ip, ss->client_port);
+                            if (ss_socket >= 0) {
+                                MessageHeader ss_header;
+                                memset(&ss_header, 0, sizeof(ss_header));
+                                ss_header.msg_type = MSG_REQUEST;
+                                ss_header.op_code = OP_INFO;
+                                strcpy(ss_header.filename, file->filename);
+                                strcpy(ss_header.username, header.username);
+                                ss_header.data_length = 0;
+                                
+                                send_message(ss_socket, &ss_header, NULL);
+                                
+                                char* ss_response = NULL;
+                                recv_message(ss_socket, &ss_header, &ss_response);
+                                close(ss_socket);
+                                
+                                if (ss_header.msg_type == MSG_RESPONSE && ss_response) {
+                                    // Parse: "Size:123 Words:45 Chars:67"
+                                    long size = 0;
+                                    int words = 0, chars = 0;
+                                    if (sscanf(ss_response, "Size:%ld Words:%d Chars:%d", 
+                                            &size, &words, &chars) == 3) {
+                                        // Update cached metadata
+                                        file->file_size = size;
+                                        file->word_count = words;
+                                        file->char_count = chars;
+                                        file->last_accessed = time(NULL);
+                                    }
+                                    free(ss_response);
+                                }
+                            }
+                        }
+                        
                         char line[512];
                         char time_str[32];
                         strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M",
@@ -120,6 +156,11 @@ void* handle_client_connection(void* arg) {
                     }
                 }
                 pthread_mutex_unlock(&ns_state.lock);
+                
+                // Save state to persist any metadata updates
+                if (show_details) {
+                    save_state();
+                }
                 
                 header.msg_type = MSG_RESPONSE;
                 header.error_code = ERR_SUCCESS;
