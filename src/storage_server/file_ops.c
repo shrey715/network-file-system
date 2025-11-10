@@ -171,8 +171,6 @@ int ss_read_file(const char* filename, char** content) {
  */
 int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
     char filepath[MAX_PATH];
-    
-    // Safely construct the file path
     if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
         return ERR_FILE_OPERATION_FAILED;
     }
@@ -181,26 +179,34 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
         return ERR_FILE_NOT_FOUND;
     }
     
-    // Get size
-    *size = get_file_size(filepath);
-    
-    // Count words and characters
-    char* content = read_file_content(filepath);
-    if (!content) {
+    // Get file size
+    struct stat st;
+    if (stat(filepath, &st) != 0) {
         return ERR_FILE_OPERATION_FAILED;
     }
+    *size = st.st_size;
     
+    // Read content to count words and chars
+    char* content = read_file_content(filepath);
+    if (!content) {
+        *words = 0;
+        *chars = 0;
+        return ERR_SUCCESS; // Empty file is valid
+    }
+    
+    // Count characters (excluding null terminator)
     *chars = strlen(content);
-    *words = 0;
     
-    int in_word = 0;
-    for (char* p = content; *p; p++) {
-        if (*p == ' ' || *p == '\n' || *p == '\t') {
-            in_word = 0;
-        } else if (!in_word) {
-            in_word = 1;
-            (*words)++;
-        }
+    // Count words (space-separated tokens)
+    *words = 0;
+    char content_copy[BUFFER_SIZE];
+    strncpy(content_copy, content, BUFFER_SIZE - 1);
+    content_copy[BUFFER_SIZE - 1] = '\0';
+    
+    char* token = strtok(content_copy, " \t\n\r");
+    while (token != NULL) {
+        (*words)++;
+        token = strtok(NULL, " \t\n\r");
     }
     
     free(content);

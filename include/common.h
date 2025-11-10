@@ -84,6 +84,7 @@
 #define ERR_UNDO_NOT_AVAILABLE 113
 #define ERR_INVALID_SENTENCE 114
 #define ERR_INVALID_WORD 115
+#define ERR_FILE_EMPTY 116
 
 // ============ MESSAGE STRUCTURE ============
 typedef struct {

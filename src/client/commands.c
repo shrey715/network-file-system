@@ -565,6 +565,13 @@ int execute_stream(ClientState* state, const char* filename) {
             if (word) free(word);
             break;
         }
+
+        if (header.msg_type == MSG_ERROR) {
+            printf("\nError: %s\n", get_error_message(header.error_code));
+            if (word) free(word);
+            close(ss_socket);
+            return header.error_code;
+        }
         
         if (header.msg_type == MSG_RESPONSE && word) {
             printf("%s ", word);

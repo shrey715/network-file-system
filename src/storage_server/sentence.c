@@ -526,8 +526,26 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
     // Update metadata
     char metapath[MAX_PATH];
     if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") == ERR_SUCCESS) {
-        FILE* f = fopen(metapath, "a");
+        FILE* f = fopen(metapath, "r+");  // Change from "a" to "r+"
         if (f) {
+            // Read existing metadata
+            char line[256];
+            char owner[MAX_USERNAME] = "";
+            long created = 0;
+            
+            while (fgets(line, sizeof(line), f)) {
+                if (strncmp(line, "owner:", 6) == 0) {
+                    sscanf(line, "owner:%s", owner);
+                } else if (strncmp(line, "created:", 8) == 0) {
+                    sscanf(line, "created:%ld", &created);
+                }
+            }
+            
+            // Rewrite metadata with updated timestamp
+            rewind(f);
+            ftruncate(fileno(f), 0);  // Clear file
+            fprintf(f, "owner:%s\n", owner);
+            fprintf(f, "created:%ld\n", created);
             fprintf(f, "modified:%ld\n", time(NULL));
             fclose(f);
         }
@@ -635,8 +653,6 @@ int ss_undo_file(const char* filename) {
  */
 int ss_stream_file(int client_socket, const char* filename) {
     char filepath[MAX_PATH];
-    
-    // Safely construct the file path
     if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
         return ERR_FILE_OPERATION_FAILED;
     }
@@ -646,8 +662,27 @@ int ss_stream_file(int client_socket, const char* filename) {
         return ERR_FILE_NOT_FOUND;
     }
     
+    // Check if file is empty
+    if (strlen(content) == 0) {
+        free(content);
+        
+        // Send error message header
+        MessageHeader error_header;
+        memset(&error_header, 0, sizeof(error_header));
+        error_header.msg_type = MSG_ERROR;
+        error_header.error_code = ERR_FILE_EMPTY;
+        error_header.data_length = 0;
+        
+        send_message(client_socket, &error_header, NULL);
+        return ERR_FILE_EMPTY;
+    }
+    
     // Tokenize and send word by word
-    char* word = strtok(content, " \t");
+    char content_copy[BUFFER_SIZE * 10];
+    strncpy(content_copy, content, sizeof(content_copy) - 1);
+    content_copy[sizeof(content_copy) - 1] = '\0';
+    
+    char* word = strtok(content_copy, " \t\n\r");
     while (word != NULL) {
         MessageHeader header;
         memset(&header, 0, sizeof(header));
@@ -656,10 +691,10 @@ int ss_stream_file(int client_socket, const char* filename) {
         
         send_message(client_socket, &header, word);
         
-        // Sleep for 0.1 seconds
+        // Sleep for 0.1 seconds (100,000 microseconds)
         usleep(100000);
         
-        word = strtok(NULL, " \t");
+        word = strtok(NULL, " \t\n\r");
     }
     
     // Send STOP message

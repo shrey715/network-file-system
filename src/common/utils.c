@@ -145,6 +145,7 @@ char* get_error_message(int error_code) {
         case ERR_UNDO_NOT_AVAILABLE: return "No undo history available";
         case ERR_INVALID_SENTENCE: return "Invalid sentence index";
         case ERR_INVALID_WORD: return "Invalid word index";
+        case ERR_FILE_EMPTY: return "File is empty";
         default: return "Unknown error";
     }
 }
