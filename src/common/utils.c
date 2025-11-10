@@ -146,6 +146,9 @@ char* get_error_message(int error_code) {
         case ERR_INVALID_SENTENCE: return "Invalid sentence index";
         case ERR_INVALID_WORD: return "Invalid word index";
         case ERR_FILE_EMPTY: return "File is empty";
+        case ERR_FOLDER_NOT_FOUND: return "Folder not found";
+        case ERR_FOLDER_EXISTS: return "Folder already exists";
+        case ERR_INVALID_PATH: return "Invalid path";
         default: return "Unknown error";
     }
 }

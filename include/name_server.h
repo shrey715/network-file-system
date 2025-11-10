@@ -12,9 +12,20 @@ typedef struct {
     int write_permission;
 } AccessControlEntry;
 
+// Folder metadata
+typedef struct {
+    char foldername[MAX_FOLDERNAME];  // Full path (e.g., "folder1/folder2")
+    char owner[MAX_USERNAME];
+    time_t created_time;
+    int parent_folder_idx;  // Index of parent folder, -1 for root
+    AccessControlEntry* acl;
+    int acl_count;
+} FolderMetadata;
+
 // File metadata
 typedef struct {
     char filename[MAX_FILENAME];
+    char folder_path[MAX_PATH];  // Path to folder containing file (empty for root)
     char owner[MAX_USERNAME];
     int ss_id;
     time_t created_time;
@@ -56,6 +67,9 @@ typedef struct {
     FileMetadata files[MAX_FILES];
     int file_count;
     
+    FolderMetadata folders[MAX_FOLDERS];
+    int folder_count;
+    
     ClientInfo clients[MAX_CLIENTS];
     int client_count;
     
@@ -65,10 +79,18 @@ typedef struct {
 // ============ FUNCTION DECLARATIONS ============
 
 // File registry operations
-int nm_register_file(const char* filename, const char* owner, int ss_id);
+int nm_register_file(const char* filename, const char* folder_path, const char* owner, int ss_id);
 FileMetadata* nm_find_file(const char* filename);
+FileMetadata* nm_find_file_in_folder(const char* filename, const char* folder_path);
 int nm_delete_file(const char* filename);
 int nm_check_permission(const char* filename, const char* username, int need_write);
+int nm_move_file(const char* filename, const char* new_folder_path);
+
+// Folder registry operations
+int nm_create_folder(const char* foldername, const char* owner);
+FolderMetadata* nm_find_folder(const char* foldername);
+int nm_check_folder_permission(const char* foldername, const char* username, int need_write);
+int nm_list_folder_contents(const char* foldername, const char* username, char* buffer, size_t buffer_size);
 
 // Storage server operations
 int nm_register_storage_server(int server_id, const char* ip, int nm_port, int client_port);
@@ -78,6 +100,7 @@ int nm_select_storage_server(void);
 // Access control
 int nm_add_access(const char* filename, const char* username, int read, int write);
 int nm_remove_access(const char* filename, const char* username);
+int nm_add_folder_access(const char* foldername, const char* username, int read, int write);
 
 // Handlers
 void* handle_client_connection(void* arg);

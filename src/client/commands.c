@@ -129,7 +129,21 @@ int execute_create(ClientState* state, const char* filename) {
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_CREATE;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    
+    // Parse filename to extract folder path and base filename
+    const char* last_slash = strrchr(filename, '/');
+    if (last_slash) {
+        // File has a folder path
+        int folder_len = last_slash - filename;
+        strncpy(header.foldername, filename, folder_len);
+        header.foldername[folder_len] = '\0';
+        strcpy(header.filename, last_slash + 1);
+    } else {
+        // File in root directory
+        strcpy(header.filename, filename);
+        header.foldername[0] = '\0';
+    }
+    
     header.data_length = strlen(state->username);
     
     send_message(state->nm_socket, &header, state->username);
@@ -719,6 +733,111 @@ int execute_exec(ClientState* state, const char* filename) {
     
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);
+    } else {
+        printf("Error: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_createfolder
+ * @brief Request NM to create a new folder.
+ *
+ * @param state Client state pointer.
+ * @param foldername Folder name/path to create.
+ * @return ERR_SUCCESS on success or an ERR_* code on failure.
+ */
+int execute_createfolder(ClientState* state, const char* foldername) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_CREATEFOLDER;
+    strcpy(header.username, state->username);
+    strcpy(header.foldername, foldername);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        printf("Folder '%s' created successfully!\n", foldername);
+    } else {
+        printf("Error: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_move
+ * @brief Request NM to move a file to a different folder.
+ *
+ * @param state Client state pointer.
+ * @param filename File to move.
+ * @param foldername Destination folder (empty string for root).
+ * @return ERR_SUCCESS on success or an ERR_* code on failure.
+ */
+int execute_move(ClientState* state, const char* filename, const char* foldername) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_MOVE;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    strcpy(header.foldername, foldername);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        printf("File '%s' moved to folder '%s' successfully!\n", 
+               filename, foldername[0] ? foldername : "/");
+    } else {
+        printf("Error: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_viewfolder
+ * @brief Request NM to list contents of a folder.
+ *
+ * @param state Client state pointer.
+ * @param foldername Folder to view (empty string for root).
+ * @return ERR_SUCCESS on success or an ERR_* code on failure.
+ */
+int execute_viewfolder(ClientState* state, const char* foldername) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_VIEWFOLDER;
+    strcpy(header.username, state->username);
+    if (foldername && strlen(foldername) > 0) {
+        strcpy(header.foldername, foldername);
+    } else {
+        header.foldername[0] = '\0';  // Root folder
+    }
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_RESPONSE) {
+        printf("Contents of '%s':\n%s", 
+               foldername && foldername[0] ? foldername : "/", 
+               response);
     } else {
         printf("Error: %s\n", get_error_message(header.error_code));
     }

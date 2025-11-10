@@ -7,12 +7,15 @@ extern SSConfig config;
  * Safe path construction with bounds checking
  * @param dest Destination buffer
  * @param dest_size Size of destination buffer
- * @param filename Filename to append
+ * @param filename Filename to append (may include folder path like "folder1/file.txt")
  * @param extension Optional extension (can be NULL), e.g., ".meta", ".undo"
  * @return ERR_SUCCESS on success, ERR_FILE_OPERATION_FAILED if path would be truncated
  * 
  * This function properly handles path length limits and returns an error
  * instead of silently truncating, preventing potential security issues.
+ * 
+ * If filename contains slashes (folders), the necessary directory structure
+ * will be created automatically.
  */
 int ss_build_filepath(char* dest, size_t dest_size, const char* filename, const char* extension) {
     int written;
@@ -28,6 +31,16 @@ int ss_build_filepath(char* dest, size_t dest_size, const char* filename, const 
     if (written < 0 || (size_t)written >= dest_size) {
         log_message("SS", "ERROR", "Path construction failed - path too long");
         return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    // Create parent directories if filename contains folder path
+    char* last_slash = strrchr(dest, '/');
+    if (last_slash && last_slash != dest) {
+        char dir_path[MAX_PATH];
+        int dir_len = last_slash - dest;
+        strncpy(dir_path, dest, dir_len);
+        dir_path[dir_len] = '\0';
+        create_directory(dir_path);
     }
     
     return ERR_SUCCESS;
@@ -215,6 +228,80 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars) {
     
     free(content_copy);
     free(content);
+    return ERR_SUCCESS;
+}
+
+/**
+ * ss_move_file
+ * @brief Physically move/rename a file on the storage server.
+ *
+ * This function moves both the file and its metadata to the new location.
+ * It creates necessary parent directories for the new path.
+ *
+ * @param old_filename Current file path.
+ * @param new_filename New file path.
+ * @return ERR_SUCCESS on success, or an ERR_* code on failure.
+ */
+int ss_move_file(const char* old_filename, const char* new_filename) {
+    char old_filepath[MAX_PATH];
+    char new_filepath[MAX_PATH];
+    char old_metapath[MAX_PATH];
+    char new_metapath[MAX_PATH];
+    char old_undopath[MAX_PATH];
+    char new_undopath[MAX_PATH];
+    
+    // Construct old paths
+    if (ss_build_filepath(old_filepath, sizeof(old_filepath), old_filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    if (ss_build_filepath(old_metapath, sizeof(old_metapath), old_filename, ".meta") != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    if (ss_build_filepath(old_undopath, sizeof(old_undopath), old_filename, ".undo") != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    // Check if old file exists
+    if (!file_exists(old_filepath)) {
+        return ERR_FILE_NOT_FOUND;
+    }
+    
+    // Construct new paths (this will create parent directories)
+    if (ss_build_filepath(new_filepath, sizeof(new_filepath), new_filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    if (ss_build_filepath(new_metapath, sizeof(new_metapath), new_filename, ".meta") != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    if (ss_build_filepath(new_undopath, sizeof(new_undopath), new_filename, ".undo") != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    // Check if new file already exists
+    if (file_exists(new_filepath)) {
+        return ERR_FILE_EXISTS;
+    }
+    
+    // Move the main file
+    if (rename(old_filepath, new_filepath) != 0) {
+        log_message("SS", "ERROR", "Failed to move file");
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    // Move metadata file if it exists
+    if (file_exists(old_metapath)) {
+        rename(old_metapath, new_metapath);  // Ignore errors
+    }
+    
+    // Move undo file if it exists
+    if (file_exists(old_undopath)) {
+        rename(old_undopath, new_undopath);  // Ignore errors
+    }
+    
+    char msg[512];
+    snprintf(msg, sizeof(msg), "Moved file: %s -> %s", old_filename, new_filename);
+    log_message("SS", "INFO", msg);
+    
     return ERR_SUCCESS;
 }
 

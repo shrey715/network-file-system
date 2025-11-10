@@ -13,19 +13,30 @@ extern NameServerState ns_state;
  * and an ACL entry granting the owner full read/write permissions.
  *
  * @param filename Null-terminated name of the file to register.
+ * @param folder_path Path to folder containing file (empty string for root).
  * @param owner Null-terminated username who will own the file.
  * @param ss_id ID of the Storage Server assigned to hold the file.
  * @return ERR_SUCCESS on success, or an ERR_* code on failure (e.g.
  *         ERR_FILE_EXISTS, ERR_FILE_OPERATION_FAILED).
  */
-int nm_register_file(const char* filename, const char* owner, int ss_id) {
+int nm_register_file(const char* filename, const char* folder_path, const char* owner, int ss_id) {
     pthread_mutex_lock(&ns_state.lock);
     
-    // Check if file already exists
+    // Check if file already exists in the same folder
     for (int i = 0; i < ns_state.file_count; i++) {
-        if (strcmp(ns_state.files[i].filename, filename) == 0) {
+        if (strcmp(ns_state.files[i].filename, filename) == 0 &&
+            strcmp(ns_state.files[i].folder_path, folder_path) == 0) {
             pthread_mutex_unlock(&ns_state.lock);
             return ERR_FILE_EXISTS;
+        }
+    }
+    
+    // If folder_path is not empty, verify folder exists
+    if (folder_path && strlen(folder_path) > 0) {
+        FolderMetadata* folder = nm_find_folder(folder_path);
+        if (!folder) {
+            pthread_mutex_unlock(&ns_state.lock);
+            return ERR_FOLDER_NOT_FOUND;
         }
     }
     
@@ -37,6 +48,7 @@ int nm_register_file(const char* filename, const char* owner, int ss_id) {
     
     FileMetadata* file = &ns_state.files[ns_state.file_count];
     strcpy(file->filename, filename);
+    strcpy(file->folder_path, folder_path ? folder_path : "");
     strcpy(file->owner, owner);
     file->ss_id = ss_id;
     file->created_time = time(NULL);
@@ -60,8 +72,8 @@ int nm_register_file(const char* filename, const char* owner, int ss_id) {
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Registered file: %s (owner: %s, SS: %d)", 
-             filename, owner, ss_id);
+    snprintf(msg, sizeof(msg), "Registered file: %s in folder '%s' (owner: %s, SS: %d)", 
+             filename, folder_path ? folder_path : "/", owner, ss_id);
     log_message("NM", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -69,21 +81,46 @@ int nm_register_file(const char* filename, const char* owner, int ss_id) {
 
 /**
  * nm_find_file
- * @brief Look up a file by its filename in the in-memory registry.
+ * @brief Look up a file by its full path or just filename.
  *
- * This performs a linear search through the registered files and returns a
- * pointer to the FileMetadata if found. The caller must not free the returned
- * pointer.
+ * This function handles both formats:
+ * - Full path: "projects/backend/server.py" 
+ * - Just filename: "server.py" (searches root only)
  *
- * @param filename Null-terminated filename to search for.
+ * @param filename Null-terminated filename or full path to search for.
  * @return Pointer to FileMetadata on success, or NULL if not found.
  */
 FileMetadata* nm_find_file(const char* filename) {
-    for (int i = 0; i < ns_state.file_count; i++) {
-        if (strcmp(ns_state.files[i].filename, filename) == 0) {
-            return &ns_state.files[i];
+    // Check if filename contains a path
+    const char* last_slash = strrchr(filename, '/');
+    
+    if (last_slash) {
+        // Filename contains path - parse it
+        char folder_path[MAX_PATH];
+        char base_filename[MAX_FILENAME];
+        
+        int folder_len = last_slash - filename;
+        strncpy(folder_path, filename, folder_len);
+        folder_path[folder_len] = '\0';
+        strcpy(base_filename, last_slash + 1);
+        
+        // Search for file with matching folder_path and filename
+        for (int i = 0; i < ns_state.file_count; i++) {
+            if (strcmp(ns_state.files[i].filename, base_filename) == 0 &&
+                strcmp(ns_state.files[i].folder_path, folder_path) == 0) {
+                return &ns_state.files[i];
+            }
+        }
+    } else {
+        // No path - search for file in root (empty folder_path)
+        for (int i = 0; i < ns_state.file_count; i++) {
+            if (strcmp(ns_state.files[i].filename, filename) == 0 &&
+                ns_state.files[i].folder_path[0] == '\0') {
+                return &ns_state.files[i];
+            }
         }
     }
+    
     return NULL;
 }
 
@@ -405,6 +442,328 @@ int nm_remove_access(const char* filename, const char* username) {
 }
 
 /**
+ * nm_find_file_in_folder
+ * @brief Find a file within a specific folder.
+ *
+ * @param filename File to find.
+ * @param folder_path Folder path to search in.
+ * @return Pointer to FileMetadata or NULL if not found.
+ */
+FileMetadata* nm_find_file_in_folder(const char* filename, const char* folder_path) {
+    for (int i = 0; i < ns_state.file_count; i++) {
+        if (strcmp(ns_state.files[i].filename, filename) == 0 &&
+            strcmp(ns_state.files[i].folder_path, folder_path ? folder_path : "") == 0) {
+            return &ns_state.files[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * nm_move_file
+ * @brief Move a file to a different folder.
+ *
+ * @param filename File to move.
+ * @param new_folder_path Destination folder path.
+ * @return ERR_SUCCESS on success, error code otherwise.
+ */
+int nm_move_file(const char* filename, const char* new_folder_path) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    FileMetadata* file = nm_find_file(filename);
+    if (!file) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_NOT_FOUND;
+    }
+    
+    // Check if destination folder exists (unless moving to root)
+    if (new_folder_path && strlen(new_folder_path) > 0) {
+        FolderMetadata* folder = nm_find_folder(new_folder_path);
+        if (!folder) {
+            pthread_mutex_unlock(&ns_state.lock);
+            return ERR_FOLDER_NOT_FOUND;
+        }
+    }
+    
+    // Check if file with same name already exists in destination
+    for (int i = 0; i < ns_state.file_count; i++) {
+        if (strcmp(ns_state.files[i].filename, filename) == 0 &&
+            strcmp(ns_state.files[i].folder_path, new_folder_path ? new_folder_path : "") == 0 &&
+            &ns_state.files[i] != file) {
+            pthread_mutex_unlock(&ns_state.lock);
+            return ERR_FILE_EXISTS;
+        }
+    }
+    
+    strcpy(file->folder_path, new_folder_path ? new_folder_path : "");
+    file->last_modified = time(NULL);
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    save_state();
+    
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Moved file %s to folder '%s'", 
+             filename, new_folder_path ? new_folder_path : "/");
+    log_message("NM", "INFO", msg);
+    
+    return ERR_SUCCESS;
+}
+
+/**
+ * nm_create_folder
+ * @brief Create a new folder in the hierarchy.
+ *
+ * @param foldername Full path of folder to create (e.g., "folder1" or "folder1/folder2").
+ * @param owner Username of folder owner.
+ * @return ERR_SUCCESS on success, error code otherwise.
+ */
+int nm_create_folder(const char* foldername, const char* owner) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    // Check if folder already exists
+    for (int i = 0; i < ns_state.folder_count; i++) {
+        if (strcmp(ns_state.folders[i].foldername, foldername) == 0) {
+            pthread_mutex_unlock(&ns_state.lock);
+            return ERR_FOLDER_EXISTS;
+        }
+    }
+    
+    // Check capacity
+    if (ns_state.folder_count >= MAX_FOLDERS) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    // Find parent folder index
+    int parent_idx = -1;
+    char* last_slash = strrchr(foldername, '/');
+    if (last_slash) {
+        // Has parent folder
+        char parent_path[MAX_PATH];
+        int len = last_slash - foldername;
+        strncpy(parent_path, foldername, len);
+        parent_path[len] = '\0';
+        
+        // Find parent
+        for (int i = 0; i < ns_state.folder_count; i++) {
+            if (strcmp(ns_state.folders[i].foldername, parent_path) == 0) {
+                parent_idx = i;
+                break;
+            }
+        }
+        
+        if (parent_idx == -1) {
+            pthread_mutex_unlock(&ns_state.lock);
+            return ERR_FOLDER_NOT_FOUND;  // Parent doesn't exist
+        }
+    }
+    
+    // Create folder
+    FolderMetadata* folder = &ns_state.folders[ns_state.folder_count];
+    strcpy(folder->foldername, foldername);
+    strcpy(folder->owner, owner);
+    folder->created_time = time(NULL);
+    folder->parent_folder_idx = parent_idx;
+    
+    // Initialize ACL with owner having full access
+    folder->acl = malloc(sizeof(AccessControlEntry));
+    strcpy(folder->acl[0].username, owner);
+    folder->acl[0].read_permission = 1;
+    folder->acl[0].write_permission = 1;
+    folder->acl_count = 1;
+    
+    ns_state.folder_count++;
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    save_state();
+    
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Created folder: %s (owner: %s)", foldername, owner);
+    log_message("NM", "INFO", msg);
+    
+    return ERR_SUCCESS;
+}
+
+/**
+ * nm_find_folder
+ * @brief Find a folder by its full path.
+ *
+ * @param foldername Full folder path.
+ * @return Pointer to FolderMetadata or NULL if not found.
+ */
+FolderMetadata* nm_find_folder(const char* foldername) {
+    for (int i = 0; i < ns_state.folder_count; i++) {
+        if (strcmp(ns_state.folders[i].foldername, foldername) == 0) {
+            return &ns_state.folders[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * nm_check_folder_permission
+ * @brief Check if a user has permission to access a folder.
+ *
+ * @param foldername Folder to check.
+ * @param username User requesting access.
+ * @param need_write 1 if write access needed, 0 for read.
+ * @return ERR_SUCCESS if allowed, error code otherwise.
+ */
+int nm_check_folder_permission(const char* foldername, const char* username, int need_write) {
+    FolderMetadata* folder = nm_find_folder(foldername);
+    if (!folder) {
+        return ERR_FOLDER_NOT_FOUND;
+    }
+    
+    // Owner always has access
+    if (strcmp(folder->owner, username) == 0) {
+        return ERR_SUCCESS;
+    }
+    
+    // Check ACL
+    for (int i = 0; i < folder->acl_count; i++) {
+        if (strcmp(folder->acl[i].username, username) == 0) {
+            if (need_write && !folder->acl[i].write_permission) {
+                return ERR_PERMISSION_DENIED;
+            }
+            if (!folder->acl[i].read_permission) {
+                return ERR_PERMISSION_DENIED;
+            }
+            return ERR_SUCCESS;
+        }
+    }
+    
+    return ERR_PERMISSION_DENIED;
+}
+
+/**
+ * nm_list_folder_contents
+ * @brief List all files and subfolders in a folder.
+ *
+ * @param foldername Folder to list.
+ * @param username User requesting the list.
+ * @param buffer Buffer to store results.
+ * @param buffer_size Size of buffer.
+ * @return ERR_SUCCESS on success, error code otherwise.
+ */
+int nm_list_folder_contents(const char* foldername, const char* username, 
+                            char* buffer, size_t buffer_size) {
+    buffer[0] = '\0';
+    
+    // Check folder permission
+    if (foldername && strlen(foldername) > 0) {
+        int perm = nm_check_folder_permission(foldername, username, 0);
+        if (perm != ERR_SUCCESS) {
+            return perm;
+        }
+    }
+    
+    // List subfolders
+    int found_any = 0;
+    for (int i = 0; i < ns_state.folder_count; i++) {
+        FolderMetadata* folder = &ns_state.folders[i];
+        
+        // Check if this folder is a direct child
+        if (foldername && strlen(foldername) > 0) {
+            // Looking in a specific folder
+            if (strncmp(folder->foldername, foldername, strlen(foldername)) == 0) {
+                const char* rest = folder->foldername + strlen(foldername);
+                if (rest[0] == '/') rest++;  // Skip leading slash
+                
+                // Check if it's a direct child (no more slashes)
+                if (rest[0] != '\0' && strchr(rest, '/') == NULL) {
+                    char line[512];
+                    snprintf(line, sizeof(line), "[DIR]  %s\n", rest);
+                    strncat(buffer, line, buffer_size - strlen(buffer) - 1);
+                    found_any = 1;
+                }
+            }
+        } else {
+            // Root folder - list top-level folders only
+            if (strchr(folder->foldername, '/') == NULL) {
+                char line[512];
+                snprintf(line, sizeof(line), "[DIR]  %s\n", folder->foldername);
+                strncat(buffer, line, buffer_size - strlen(buffer) - 1);
+                found_any = 1;
+            }
+        }
+    }
+    
+    // List files in this folder
+    for (int i = 0; i < ns_state.file_count; i++) {
+        FileMetadata* file = &ns_state.files[i];
+        
+        if (strcmp(file->folder_path, foldername ? foldername : "") == 0) {
+            // Check if user has access
+            int has_access = 0;
+            for (int j = 0; j < file->acl_count; j++) {
+                if (strcmp(file->acl[j].username, username) == 0) {
+                    has_access = 1;
+                    break;
+                }
+            }
+            
+            if (has_access || strcmp(file->owner, username) == 0) {
+                char line[512];
+                snprintf(line, sizeof(line), "[FILE] %s\n", file->filename);
+                strncat(buffer, line, buffer_size - strlen(buffer) - 1);
+                found_any = 1;
+            }
+        }
+    }
+    
+    if (!found_any) {
+        strcpy(buffer, "(empty folder)\n");
+    }
+    
+    return ERR_SUCCESS;
+}
+
+/**
+ * nm_add_folder_access
+ * @brief Add or update ACL for a folder.
+ *
+ * @param foldername Folder to modify.
+ * @param username User to grant access to.
+ * @param read Read permission flag.
+ * @param write Write permission flag.
+ * @return ERR_SUCCESS on success, error code otherwise.
+ */
+int nm_add_folder_access(const char* foldername, const char* username, int read, int write) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    FolderMetadata* folder = nm_find_folder(foldername);
+    if (!folder) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FOLDER_NOT_FOUND;
+    }
+    
+    // Check if user already in ACL
+    for (int i = 0; i < folder->acl_count; i++) {
+        if (strcmp(folder->acl[i].username, username) == 0) {
+            // Update permissions
+            folder->acl[i].read_permission = read;
+            folder->acl[i].write_permission = write;
+            pthread_mutex_unlock(&ns_state.lock);
+            save_state();
+            return ERR_SUCCESS;
+        }
+    }
+    
+    // Add new ACL entry
+    folder->acl = realloc(folder->acl, sizeof(AccessControlEntry) * (folder->acl_count + 1));
+    strcpy(folder->acl[folder->acl_count].username, username);
+    folder->acl[folder->acl_count].read_permission = read;
+    folder->acl[folder->acl_count].write_permission = write;
+    folder->acl_count++;
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    save_state();
+    
+    return ERR_SUCCESS;
+}
+
+/**
  * save_state
  * @brief Persist the in-memory Name Server registry to disk (`data/nm_state.dat`).
  *
@@ -415,11 +774,12 @@ void save_state(void) {
     FILE* f = fopen("data/nm_state.dat", "w");
     if (!f) return;
     
+    // Save files
     fprintf(f, "%d\n", ns_state.file_count);
     for (int i = 0; i < ns_state.file_count; i++) {
         FileMetadata* file = &ns_state.files[i];
-        fprintf(f, "%s|%s|%d|%ld|%ld|%ld|%ld|%d|%d|%d\n",
-                file->filename, file->owner, file->ss_id,
+        fprintf(f, "%s|%s|%s|%d|%ld|%ld|%ld|%ld|%d|%d|%d\n",
+                file->filename, file->folder_path, file->owner, file->ss_id,
                 file->created_time, file->last_modified, file->last_accessed,
                 file->file_size, file->word_count, file->char_count, file->acl_count);
         
@@ -428,6 +788,22 @@ void save_state(void) {
                     file->acl[j].username,
                     file->acl[j].read_permission,
                     file->acl[j].write_permission);
+        }
+    }
+    
+    // Save folders
+    fprintf(f, "%d\n", ns_state.folder_count);
+    for (int i = 0; i < ns_state.folder_count; i++) {
+        FolderMetadata* folder = &ns_state.folders[i];
+        fprintf(f, "%s|%s|%ld|%d|%d\n",
+                folder->foldername, folder->owner,
+                folder->created_time, folder->parent_folder_idx, folder->acl_count);
+        
+        for (int j = 0; j < folder->acl_count; j++) {
+            fprintf(f, "%s|%d|%d\n",
+                    folder->acl[j].username,
+                    folder->acl[j].read_permission,
+                    folder->acl[j].write_permission);
         }
     }
     
@@ -447,11 +823,12 @@ void load_state(void) {
     FILE* f = fopen("data/nm_state.dat", "r");
     if (!f) return;
     
+    // Load files
     fscanf(f, "%d\n", &ns_state.file_count);
     for (int i = 0; i < ns_state.file_count; i++) {
         FileMetadata* file = &ns_state.files[i];
-        fscanf(f, "%[^|]|%[^|]|%d|%ld|%ld|%ld|%ld|%d|%d|%d\n",
-               file->filename, file->owner, &file->ss_id,
+        fscanf(f, "%[^|]|%[^|]|%[^|]|%d|%ld|%ld|%ld|%ld|%d|%d|%d\n",
+               file->filename, file->folder_path, file->owner, &file->ss_id,
                &file->created_time, &file->last_modified, &file->last_accessed,
                &file->file_size, &file->word_count, &file->char_count, &file->acl_count);
         
@@ -461,6 +838,24 @@ void load_state(void) {
                    file->acl[j].username,
                    &file->acl[j].read_permission,
                    &file->acl[j].write_permission);
+        }
+    }
+    
+    // Load folders
+    if (fscanf(f, "%d\n", &ns_state.folder_count) == 1) {
+        for (int i = 0; i < ns_state.folder_count; i++) {
+            FolderMetadata* folder = &ns_state.folders[i];
+            fscanf(f, "%[^|]|%[^|]|%ld|%d|%d\n",
+                   folder->foldername, folder->owner,
+                   &folder->created_time, &folder->parent_folder_idx, &folder->acl_count);
+            
+            folder->acl = malloc(sizeof(AccessControlEntry) * folder->acl_count);
+            for (int j = 0; j < folder->acl_count; j++) {
+                fscanf(f, "%[^|]|%d|%d\n",
+                       folder->acl[j].username,
+                       &folder->acl[j].read_permission,
+                       &folder->acl[j].write_permission);
+            }
         }
     }
     

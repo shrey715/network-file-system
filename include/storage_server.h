@@ -71,6 +71,7 @@ int ss_create_file(const char* filename, const char* owner);
 int ss_delete_file(const char* filename);
 int ss_read_file(const char* filename, char** content);
 int ss_get_file_info(const char* filename, long* size, int* words, int* chars);
+int ss_move_file(const char* old_filename, const char* new_filename);
 
 // Sentence operations
 int parse_sentences(const char* text, Sentence** sentences);

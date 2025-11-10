@@ -225,8 +225,8 @@ void* handle_client_connection(void* arg) {
                 close(ss_socket);
                 
                 if (ss_header.msg_type == MSG_ACK) {
-                    // Register file in NM
-                    nm_register_file(header.filename, header.username, ss_id);
+                    // Register file in NM (with folder path from header)
+                    nm_register_file(header.filename, header.foldername, header.username, ss_id);
                 }
                 
                 send_message(client_fd, &ss_header, ss_response);
@@ -485,6 +485,153 @@ void* handle_client_connection(void* arg) {
                 header.error_code = result;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
+                break;
+            }
+            
+            case OP_CREATEFOLDER: {
+                // Create a new folder
+                int result = nm_create_folder(header.foldername, header.username);
+                
+                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
+                header.error_code = result;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                
+                if (result == ERR_SUCCESS) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s created folder: %s", 
+                             header.username, header.foldername);
+                    log_message("NM", "INFO", msg);
+                }
+                break;
+            }
+            
+            case OP_MOVE: {
+                // Move file to different folder
+                FileMetadata* file = nm_find_file(header.filename);
+                if (!file) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_NOT_FOUND;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Check if user has write permission on the file
+                int perm_result = nm_check_permission(header.filename, header.username, 1);
+                if (perm_result != ERR_SUCCESS) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = perm_result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Construct the new full path for the file
+                char new_fullpath[MAX_PATH];
+                if (header.foldername[0]) {
+                    snprintf(new_fullpath, sizeof(new_fullpath), "%s/%s", 
+                             header.foldername, header.filename);
+                } else {
+                    strncpy(new_fullpath, header.filename, sizeof(new_fullpath) - 1);
+                    new_fullpath[sizeof(new_fullpath) - 1] = '\0';
+                }
+                
+                // First, move the file physically on the storage server
+                StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
+                if (!ss || !ss->is_active) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int ss_socket = connect_to_server(ss->ip, ss->client_port);
+                if (ss_socket < 0) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Construct the current full path
+                char old_fullpath[MAX_PATH];
+                if (file->folder_path[0]) {
+                    int written = snprintf(old_fullpath, sizeof(old_fullpath), "%s/%s", 
+                                          file->folder_path, header.filename);
+                    if (written >= (int)sizeof(old_fullpath)) {
+                        header.msg_type = MSG_ERROR;
+                        header.error_code = ERR_INVALID_PATH;
+                        header.data_length = 0;
+                        send_message(client_fd, &header, NULL);
+                        close(ss_socket);
+                        break;
+                    }
+                } else {
+                    strncpy(old_fullpath, header.filename, sizeof(old_fullpath) - 1);
+                    old_fullpath[sizeof(old_fullpath) - 1] = '\0';
+                }
+                
+                MessageHeader ss_header;
+                memset(&ss_header, 0, sizeof(ss_header));
+                ss_header.msg_type = MSG_REQUEST;
+                ss_header.op_code = OP_SS_MOVE;
+                strcpy(ss_header.filename, old_fullpath);
+                ss_header.data_length = strlen(new_fullpath);
+                
+                send_message(ss_socket, &ss_header, new_fullpath);
+                
+                char* ss_response;
+                recv_message(ss_socket, &ss_header, &ss_response);
+                close(ss_socket);
+                
+                if (ss_response) free(ss_response);
+                
+                // If storage server move succeeded, update name server metadata
+                int result = ERR_FILE_OPERATION_FAILED;
+                if (ss_header.msg_type == MSG_ACK) {
+                    result = nm_move_file(header.filename, header.foldername);
+                } else {
+                    result = ss_header.error_code;
+                }
+                
+                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
+                header.error_code = result;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                
+                if (result == ERR_SUCCESS) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s moved file %s to folder %s", 
+                             header.username, header.filename, header.foldername);
+                    log_message("NM", "INFO", msg);
+                }
+                break;
+            }
+            
+            case OP_VIEWFOLDER: {
+                // List folder contents
+                char folder_contents[BUFFER_SIZE * 2];
+                int result = nm_list_folder_contents(
+                    header.foldername[0] ? header.foldername : NULL,
+                    header.username,
+                    folder_contents,
+                    sizeof(folder_contents)
+                );
+                
+                if (result == ERR_SUCCESS) {
+                    header.msg_type = MSG_RESPONSE;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = strlen(folder_contents);
+                    send_message(client_fd, &header, folder_contents);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
                 break;
             }
             

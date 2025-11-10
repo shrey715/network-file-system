@@ -93,6 +93,9 @@ int main(int argc, char* argv[]) {
             printf("  ADDACCESS -W <file> <user> - Add write access\n");
             printf("  REMACCESS <file> <user>    - Remove access\n");
             printf("  EXEC <filename>         - Execute file as commands\n");
+            printf("  CREATEFOLDER <name>     - Create a new folder\n");
+            printf("  MOVE <file> <folder>    - Move file to folder\n");
+            printf("  VIEWFOLDER [folder]     - List folder contents (root if empty)\n");
             printf("  quit/exit               - Exit client\n");
             continue;
         }
@@ -129,6 +132,13 @@ int main(int argc, char* argv[]) {
             execute_remaccess(&client_state, arg1, arg2);
         } else if (strcmp(command, "EXEC") == 0) {
             execute_exec(&client_state, arg1);
+        } else if (strcmp(command, "CREATEFOLDER") == 0) {
+            execute_createfolder(&client_state, arg1);
+        } else if (strcmp(command, "MOVE") == 0) {
+            execute_move(&client_state, arg1, arg2);
+        } else if (strcmp(command, "VIEWFOLDER") == 0) {
+            // arg1 contains folder name, or empty for root
+            execute_viewfolder(&client_state, arg1);
         } else {
             printf("Error: Unknown command '%s'\n", command);
         }

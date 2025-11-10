@@ -804,7 +804,17 @@ void* handle_client_request(void* arg) {
         switch (header.op_code) {
             case OP_SS_CREATE: {
                 // payload contains owner username
-                int result = ss_create_file(header.filename, payload ? payload : "unknown");
+                // Construct full path from foldername and filename
+                char fullpath[MAX_PATH];
+                if (header.foldername[0]) {
+                    snprintf(fullpath, sizeof(fullpath), "%s/%s", 
+                             header.foldername, header.filename);
+                } else {
+                    strncpy(fullpath, header.filename, sizeof(fullpath) - 1);
+                    fullpath[sizeof(fullpath) - 1] = '\0';
+                }
+                
+                int result = ss_create_file(fullpath, payload ? payload : "unknown");
                 header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
                 header.error_code = result;
                 header.data_length = 0;
@@ -939,6 +949,25 @@ void* handle_client_request(void* arg) {
             
             case OP_UNDO: {
                 int result = ss_undo_file(header.filename);
+                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
+                header.error_code = result;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                keep_alive = 0;  // Close after single-shot operations
+                break;
+            }
+            
+            case OP_SS_MOVE: {
+                // Payload contains new filename
+                if (!payload) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_OPERATION_FAILED;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int result = ss_move_file(header.filename, payload);
                 header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
                 header.error_code = result;
                 header.data_length = 0;
