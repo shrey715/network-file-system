@@ -88,6 +88,12 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
 int ss_save_undo(const char* filename);
 int ss_undo_file(const char* filename);
 
+// Checkpoint operations
+int ss_create_checkpoint(const char* filename, const char* checkpoint_tag);
+int ss_view_checkpoint(const char* filename, const char* checkpoint_tag, char** content);
+int ss_revert_checkpoint(const char* filename, const char* checkpoint_tag);
+int ss_list_checkpoints(const char* filename, char** checkpoint_list);
+
 // Stream operations
 int ss_stream_file(int client_socket, const char* filename);
 

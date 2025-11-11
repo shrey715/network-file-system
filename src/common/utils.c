@@ -149,6 +149,8 @@ char* get_error_message(int error_code) {
         case ERR_FOLDER_NOT_FOUND: return "Folder not found";
         case ERR_FOLDER_EXISTS: return "Folder already exists";
         case ERR_INVALID_PATH: return "Invalid path";
+        case ERR_CHECKPOINT_NOT_FOUND: return "Checkpoint not found";
+        case ERR_CHECKPOINT_EXISTS: return "Checkpoint already exists";
         default: return "Unknown error";
     }
 }

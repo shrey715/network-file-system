@@ -28,6 +28,10 @@ int execute_exec(ClientState* state, const char* filename);
 int execute_createfolder(ClientState* state, const char* foldername);
 int execute_move(ClientState* state, const char* filename, const char* foldername);
 int execute_viewfolder(ClientState* state, const char* foldername);
+int execute_checkpoint(ClientState* state, const char* filename, const char* checkpoint_tag);
+int execute_viewcheckpoint(ClientState* state, const char* filename, const char* checkpoint_tag);
+int execute_revert(ClientState* state, const char* filename, const char* checkpoint_tag);
+int execute_listcheckpoints(ClientState* state, const char* filename);
 
 // ============ PARSER FUNCTIONS ============
 int parse_command(const char* input, char* command, char* arg1, char* arg2, int* flags);

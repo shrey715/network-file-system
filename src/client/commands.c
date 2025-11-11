@@ -845,3 +845,120 @@ int execute_viewfolder(ClientState* state, const char* foldername) {
     if (response) free(response);
     return header.error_code;
 }
+
+/**
+ * execute_checkpoint
+ * @brief Creates a checkpoint for a file with the specified tag
+ */
+int execute_checkpoint(ClientState* state, const char* filename, const char* checkpoint_tag) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_CHECKPOINT;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    strcpy(header.checkpoint_tag, checkpoint_tag);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        printf("Checkpoint '%s' created successfully for file '%s'.\n", checkpoint_tag, filename);
+    } else {
+        printf("Error creating checkpoint: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_viewcheckpoint
+ * @brief Views the content of a specific checkpoint
+ */
+int execute_viewcheckpoint(ClientState* state, const char* filename, const char* checkpoint_tag) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_VIEWCHECKPOINT;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    strcpy(header.checkpoint_tag, checkpoint_tag);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_RESPONSE) {
+        printf("=== Checkpoint '%s' for file '%s' ===\n", checkpoint_tag, filename);
+        printf("%s\n", response);
+        printf("=== End of checkpoint ===\n");
+    } else {
+        printf("Error viewing checkpoint: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_revert
+ * @brief Reverts a file to a specific checkpoint
+ */
+int execute_revert(ClientState* state, const char* filename, const char* checkpoint_tag) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_REVERT;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    strcpy(header.checkpoint_tag, checkpoint_tag);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        printf("File '%s' successfully reverted to checkpoint '%s'.\n", filename, checkpoint_tag);
+    } else {
+        printf("Error reverting to checkpoint: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_listcheckpoints
+ * @brief Lists all checkpoints for a file
+ */
+int execute_listcheckpoints(ClientState* state, const char* filename) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_LISTCHECKPOINTS;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_RESPONSE) {
+        printf("%s", response);
+    } else {
+        printf("Error listing checkpoints: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}

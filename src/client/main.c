@@ -96,6 +96,10 @@ int main(int argc, char* argv[]) {
             printf("  CREATEFOLDER <name>     - Create a new folder\n");
             printf("  MOVE <file> <folder>    - Move file to folder\n");
             printf("  VIEWFOLDER [folder]     - List folder contents (root if empty)\n");
+            printf("  CHECKPOINT <file> <tag> - Create a checkpoint with given tag\n");
+            printf("  VIEWCHECKPOINT <file> <tag> - View checkpoint content\n");
+            printf("  REVERT <file> <tag>     - Revert file to checkpoint\n");
+            printf("  LISTCHECKPOINTS <file>  - List all checkpoints for file\n");
             printf("  quit/exit               - Exit client\n");
             continue;
         }
@@ -139,6 +143,30 @@ int main(int argc, char* argv[]) {
         } else if (strcmp(command, "VIEWFOLDER") == 0) {
             // arg1 contains folder name, or empty for root
             execute_viewfolder(&client_state, arg1);
+        } else if (strcmp(command, "CHECKPOINT") == 0) {
+            if (!arg1[0] || !arg2[0]) {
+                printf("Error: CHECKPOINT requires <filename> and <checkpoint_tag>\n");
+            } else {
+                execute_checkpoint(&client_state, arg1, arg2);
+            }
+        } else if (strcmp(command, "VIEWCHECKPOINT") == 0) {
+            if (!arg1[0] || !arg2[0]) {
+                printf("Error: VIEWCHECKPOINT requires <filename> and <checkpoint_tag>\n");
+            } else {
+                execute_viewcheckpoint(&client_state, arg1, arg2);
+            }
+        } else if (strcmp(command, "REVERT") == 0) {
+            if (!arg1[0] || !arg2[0]) {
+                printf("Error: REVERT requires <filename> and <checkpoint_tag>\n");
+            } else {
+                execute_revert(&client_state, arg1, arg2);
+            }
+        } else if (strcmp(command, "LISTCHECKPOINTS") == 0) {
+            if (!arg1[0]) {
+                printf("Error: LISTCHECKPOINTS requires <filename>\n");
+            } else {
+                execute_listcheckpoints(&client_state, arg1);
+            }
         } else {
             printf("Error: Unknown command '%s'\n", command);
         }

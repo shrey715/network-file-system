@@ -976,6 +976,84 @@ void* handle_client_request(void* arg) {
                 break;
             }
             
+            case OP_SS_CHECKPOINT: {
+                // Create checkpoint with tag from header
+                int result = ss_create_checkpoint(header.filename, header.checkpoint_tag);
+                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
+                header.error_code = result;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                
+                if (result == ERR_SUCCESS) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "Checkpoint created: %s [%s]", 
+                             header.filename, header.checkpoint_tag);
+                    log_message("SS", "INFO", msg);
+                }
+                keep_alive = 0;
+                break;
+            }
+            
+            case OP_SS_VIEWCHECKPOINT: {
+                // View checkpoint content
+                char* checkpoint_content = NULL;
+                int result = ss_view_checkpoint(header.filename, header.checkpoint_tag, &checkpoint_content);
+                
+                if (result == ERR_SUCCESS && checkpoint_content) {
+                    header.msg_type = MSG_RESPONSE;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = strlen(checkpoint_content);
+                    send_message(client_fd, &header, checkpoint_content);
+                    free(checkpoint_content);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
+                keep_alive = 0;
+                break;
+            }
+            
+            case OP_SS_REVERT: {
+                // Revert to checkpoint
+                int result = ss_revert_checkpoint(header.filename, header.checkpoint_tag);
+                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
+                header.error_code = result;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                
+                if (result == ERR_SUCCESS) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "Reverted to checkpoint: %s [%s]", 
+                             header.filename, header.checkpoint_tag);
+                    log_message("SS", "INFO", msg);
+                }
+                keep_alive = 0;
+                break;
+            }
+            
+            case OP_SS_LISTCHECKPOINTS: {
+                // List all checkpoints for file
+                char* checkpoint_list = NULL;
+                int result = ss_list_checkpoints(header.filename, &checkpoint_list);
+                
+                if (result == ERR_SUCCESS && checkpoint_list) {
+                    header.msg_type = MSG_RESPONSE;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = strlen(checkpoint_list);
+                    send_message(client_fd, &header, checkpoint_list);
+                    free(checkpoint_list);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
+                keep_alive = 0;
+                break;
+            }
+            
             default: {
                 // Unknown operation - close connection
                 keep_alive = 0;

@@ -719,6 +719,268 @@ void* handle_client_connection(void* arg) {
                 break;
             }
             
+            case OP_CHECKPOINT: {
+                // Create checkpoint for file
+                FileMetadata* file = nm_find_file(header.filename);
+                if (!file) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_NOT_FOUND;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Check write permission (checkpoints require write access)
+                int perm_result = nm_check_permission(header.filename, header.username, 1);
+                if (perm_result != ERR_SUCCESS) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = perm_result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Forward to storage server
+                StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
+                if (!ss) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int ss_socket = socket(AF_INET, SOCK_STREAM, 0);
+                struct sockaddr_in ss_addr;
+                ss_addr.sin_family = AF_INET;
+                ss_addr.sin_port = htons(ss->client_port);
+                inet_pton(AF_INET, ss->ip, &ss_addr.sin_addr);
+                
+                if (connect(ss_socket, (struct sockaddr*)&ss_addr, sizeof(ss_addr)) < 0) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    close(ss_socket);
+                    break;
+                }
+                
+                MessageHeader ss_header = header;
+                ss_header.op_code = OP_SS_CHECKPOINT;
+                send_message(ss_socket, &ss_header, NULL);
+                
+                MessageHeader ss_response;
+                char* ss_payload = NULL;
+                recv_message(ss_socket, &ss_response, &ss_payload);
+                
+                send_message(client_fd, &ss_response, ss_payload);
+                
+                if (ss_response.error_code == ERR_SUCCESS) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s created checkpoint [%s] for file %s", 
+                             header.username, header.checkpoint_tag, header.filename);
+                    log_message("NM", "INFO", msg);
+                }
+                
+                if (ss_payload) free(ss_payload);
+                close(ss_socket);
+                break;
+            }
+            
+            case OP_VIEWCHECKPOINT: {
+                // View checkpoint content
+                FileMetadata* file = nm_find_file(header.filename);
+                if (!file) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_NOT_FOUND;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Check read permission
+                int perm_result = nm_check_permission(header.filename, header.username, 0);
+                if (perm_result != ERR_SUCCESS) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = perm_result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Forward to storage server
+                StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
+                if (!ss) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int ss_socket = socket(AF_INET, SOCK_STREAM, 0);
+                struct sockaddr_in ss_addr;
+                ss_addr.sin_family = AF_INET;
+                ss_addr.sin_port = htons(ss->client_port);
+                inet_pton(AF_INET, ss->ip, &ss_addr.sin_addr);
+                
+                if (connect(ss_socket, (struct sockaddr*)&ss_addr, sizeof(ss_addr)) < 0) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    close(ss_socket);
+                    break;
+                }
+                
+                MessageHeader ss_header = header;
+                ss_header.op_code = OP_SS_VIEWCHECKPOINT;
+                send_message(ss_socket, &ss_header, NULL);
+                
+                MessageHeader ss_response;
+                char* ss_payload = NULL;
+                recv_message(ss_socket, &ss_response, &ss_payload);
+                
+                send_message(client_fd, &ss_response, ss_payload);
+                
+                if (ss_payload) free(ss_payload);
+                close(ss_socket);
+                break;
+            }
+            
+            case OP_REVERT: {
+                // Revert file to checkpoint
+                FileMetadata* file = nm_find_file(header.filename);
+                if (!file) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_NOT_FOUND;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Check write permission
+                int perm_result = nm_check_permission(header.filename, header.username, 1);
+                if (perm_result != ERR_SUCCESS) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = perm_result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Forward to storage server
+                StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
+                if (!ss) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int ss_socket = socket(AF_INET, SOCK_STREAM, 0);
+                struct sockaddr_in ss_addr;
+                ss_addr.sin_family = AF_INET;
+                ss_addr.sin_port = htons(ss->client_port);
+                inet_pton(AF_INET, ss->ip, &ss_addr.sin_addr);
+                
+                if (connect(ss_socket, (struct sockaddr*)&ss_addr, sizeof(ss_addr)) < 0) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    close(ss_socket);
+                    break;
+                }
+                
+                MessageHeader ss_header = header;
+                ss_header.op_code = OP_SS_REVERT;
+                send_message(ss_socket, &ss_header, NULL);
+                
+                MessageHeader ss_response;
+                char* ss_payload = NULL;
+                recv_message(ss_socket, &ss_response, &ss_payload);
+                
+                send_message(client_fd, &ss_response, ss_payload);
+                
+                if (ss_response.error_code == ERR_SUCCESS) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s reverted file %s to checkpoint [%s]", 
+                             header.username, header.filename, header.checkpoint_tag);
+                    log_message("NM", "INFO", msg);
+                    
+                    // Update file metadata (size, word count, etc.) after revert
+                    file->last_accessed = time(NULL);
+                    save_state();
+                }
+                
+                if (ss_payload) free(ss_payload);
+                close(ss_socket);
+                break;
+            }
+            
+            case OP_LISTCHECKPOINTS: {
+                // List all checkpoints for file
+                FileMetadata* file = nm_find_file(header.filename);
+                if (!file) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_NOT_FOUND;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Check read permission
+                int perm_result = nm_check_permission(header.filename, header.username, 0);
+                if (perm_result != ERR_SUCCESS) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = perm_result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                // Forward to storage server
+                StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
+                if (!ss) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int ss_socket = socket(AF_INET, SOCK_STREAM, 0);
+                struct sockaddr_in ss_addr;
+                ss_addr.sin_family = AF_INET;
+                ss_addr.sin_port = htons(ss->client_port);
+                inet_pton(AF_INET, ss->ip, &ss_addr.sin_addr);
+                
+                if (connect(ss_socket, (struct sockaddr*)&ss_addr, sizeof(ss_addr)) < 0) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_SS_UNAVAILABLE;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    close(ss_socket);
+                    break;
+                }
+                
+                MessageHeader ss_header = header;
+                ss_header.op_code = OP_SS_LISTCHECKPOINTS;
+                send_message(ss_socket, &ss_header, NULL);
+                
+                MessageHeader ss_response;
+                char* ss_payload = NULL;
+                recv_message(ss_socket, &ss_response, &ss_payload);
+                
+                send_message(client_fd, &ss_response, ss_payload);
+                
+                if (ss_payload) free(ss_payload);
+                close(ss_socket);
+                break;
+            }
+            
             default:
                 header.msg_type = MSG_ERROR;
                 header.error_code = ERR_INVALID_COMMAND;

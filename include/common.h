@@ -21,6 +21,7 @@
 #define MAX_FILENAME 256
 #define MAX_FOLDERNAME 256
 #define MAX_USERNAME 64
+#define MAX_CHECKPOINT_TAG 64
 #define MAX_IP 16
 #define MAX_STORAGE_DIR 512      // Maximum length for storage directory path
 #define MAX_PATH 1024            // Maximum length for full file paths
@@ -56,6 +57,10 @@
 #define OP_CREATEFOLDER 23
 #define OP_MOVE 24
 #define OP_VIEWFOLDER 25
+#define OP_CHECKPOINT 26
+#define OP_VIEWCHECKPOINT 27
+#define OP_REVERT 28
+#define OP_LISTCHECKPOINTS 29
 
 // System operations
 #define OP_REGISTER_SS 30
@@ -72,6 +77,10 @@
 #define OP_SS_WRITE_UNLOCK 45
 #define OP_SS_STREAM 46
 #define OP_SS_MOVE 47
+#define OP_SS_CHECKPOINT 48
+#define OP_SS_VIEWCHECKPOINT 49
+#define OP_SS_REVERT 50
+#define OP_SS_LISTCHECKPOINTS 51
 
 // ============ ERROR CODES ============
 #define ERR_SUCCESS 0
@@ -94,6 +103,8 @@
 #define ERR_FOLDER_NOT_FOUND 117
 #define ERR_FOLDER_EXISTS 118
 #define ERR_INVALID_PATH 119
+#define ERR_CHECKPOINT_NOT_FOUND 120
+#define ERR_CHECKPOINT_EXISTS 121
 
 // ============ MESSAGE STRUCTURE ============
 typedef struct {
@@ -102,6 +113,7 @@ typedef struct {
     char username[MAX_USERNAME];
     char filename[MAX_FILENAME];
     char foldername[MAX_FOLDERNAME];  // For folder operations
+    char checkpoint_tag[MAX_CHECKPOINT_TAG];  // For checkpoint operations
     int data_length;
     int error_code;
     int sentence_index;
