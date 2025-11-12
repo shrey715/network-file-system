@@ -59,6 +59,15 @@ typedef struct {
     time_t last_activity;
 } ClientInfo;
 
+// Access Request
+typedef struct {
+    char filename[MAX_FILENAME];
+    char requester[MAX_USERNAME];
+    time_t request_time;
+    int read_requested;   // 1 if read access requested
+    int write_requested;  // 1 if write access requested
+} AccessRequest;
+
 // Name Server state
 typedef struct {
     StorageServerInfo storage_servers[MAX_STORAGE_SERVERS];
@@ -72,6 +81,9 @@ typedef struct {
     
     ClientInfo clients[MAX_CLIENTS];
     int client_count;
+    
+    AccessRequest access_requests[MAX_FILES];  // Max one request per file per user (simplified)
+    int request_count;
     
     pthread_mutex_t lock;
 } NameServerState;
@@ -101,6 +113,12 @@ int nm_select_storage_server(void);
 int nm_add_access(const char* filename, const char* username, int read, int write);
 int nm_remove_access(const char* filename, const char* username);
 int nm_add_folder_access(const char* foldername, const char* username, int read, int write);
+
+// Access requests
+int nm_request_access(const char* filename, const char* requester, int read_requested, int write_requested);
+int nm_view_requests(const char* filename, const char* owner, char* buffer, size_t buffer_size);
+int nm_approve_request(const char* filename, const char* owner, const char* requester);
+int nm_deny_request(const char* filename, const char* owner, const char* requester);
 
 // Handlers
 void* handle_client_connection(void* arg);

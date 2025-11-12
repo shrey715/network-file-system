@@ -764,6 +764,238 @@ int nm_add_folder_access(const char* foldername, const char* username, int read,
 }
 
 /**
+ * nm_request_access
+ * @brief Submit a request to access a file
+ */
+int nm_request_access(const char* filename, const char* requester, int read_requested, int write_requested) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    // Check if file exists
+    FileMetadata* file = nm_find_file(filename);
+    if (!file) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_NOT_FOUND;
+    }
+    
+    // Check if requester is the owner
+    if (strcmp(file->owner, requester) == 0) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_SUCCESS;  // Owner already has access
+    }
+    
+    // Check if requester already has sufficient access
+    for (int i = 0; i < file->acl_count; i++) {
+        if (strcmp(file->acl[i].username, requester) == 0) {
+            // Check if they already have the requested permissions
+            int has_sufficient = 1;
+            if (read_requested && !file->acl[i].read_permission) has_sufficient = 0;
+            if (write_requested && !file->acl[i].write_permission) has_sufficient = 0;
+            if (has_sufficient) {
+                pthread_mutex_unlock(&ns_state.lock);
+                // Return special code to indicate they already have access
+                // Store what access they have in flags for the client to read
+                return ERR_ALREADY_HAS_ACCESS;
+            }
+        }
+    }
+    
+    // Check if request already exists - if so, update it
+    for (int i = 0; i < ns_state.request_count; i++) {
+        if (strcmp(ns_state.access_requests[i].filename, filename) == 0 &&
+            strcmp(ns_state.access_requests[i].requester, requester) == 0) {
+            // Update existing request
+            ns_state.access_requests[i].read_requested = read_requested;
+            ns_state.access_requests[i].write_requested = write_requested;
+            ns_state.access_requests[i].request_time = time(NULL);
+            pthread_mutex_unlock(&ns_state.lock);
+            save_state();
+            return ERR_SUCCESS;
+        }
+    }
+    
+    // Add new request
+    if (ns_state.request_count >= MAX_FILES) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_OPERATION_FAILED;  // Too many requests
+    }
+    
+    strcpy(ns_state.access_requests[ns_state.request_count].filename, filename);
+    strcpy(ns_state.access_requests[ns_state.request_count].requester, requester);
+    ns_state.access_requests[ns_state.request_count].request_time = time(NULL);
+    ns_state.access_requests[ns_state.request_count].read_requested = read_requested;
+    ns_state.access_requests[ns_state.request_count].write_requested = write_requested;
+    ns_state.request_count++;
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    save_state();
+    
+    return ERR_SUCCESS;
+}
+
+/**
+ * nm_view_requests
+ * @brief View all pending access requests for a file (owner only)
+ */
+int nm_view_requests(const char* filename, const char* owner, char* buffer, size_t buffer_size) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    // Check if file exists
+    FileMetadata* file = nm_find_file(filename);
+    if (!file) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_NOT_FOUND;
+    }
+    
+    // Check if caller is owner
+    if (strcmp(file->owner, owner) != 0) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_NOT_OWNER;
+    }
+    
+    // Build list of requests
+    char temp[BUFFER_SIZE * 2] = "";
+    int count = 0;
+    
+    for (int i = 0; i < ns_state.request_count; i++) {
+        if (strcmp(ns_state.access_requests[i].filename, filename) == 0) {
+            char time_str[64];
+            struct tm* tm_info = localtime(&ns_state.access_requests[i].request_time);
+            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+            
+            // Determine permission type
+            char perm_str[32];
+            if (ns_state.access_requests[i].read_requested && ns_state.access_requests[i].write_requested) {
+                strcpy(perm_str, "Read+Write");
+            } else if (ns_state.access_requests[i].write_requested) {
+                strcpy(perm_str, "Write");
+            } else {
+                strcpy(perm_str, "Read");
+            }
+            
+            char line[256];
+            snprintf(line, sizeof(line), "  [%s] - %s access - Requested on %s\n",
+                     ns_state.access_requests[i].requester, perm_str, time_str);
+            
+            if (strlen(temp) + strlen(line) < sizeof(temp) - 1) {
+                strcat(temp, line);
+                count++;
+            }
+        }
+    }
+    
+    if (count == 0) {
+        snprintf(buffer, buffer_size, "No pending access requests for '%s'.\n", filename);
+    } else {
+        snprintf(buffer, buffer_size, "Pending access requests for '%s' (%d total):\n%s",
+                 filename, count, temp);
+    }
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    return ERR_SUCCESS;
+}
+
+/**
+ * nm_approve_request
+ * @brief Approve an access request and grant read access
+ */
+int nm_approve_request(const char* filename, const char* owner, const char* requester) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    // Check if file exists
+    FileMetadata* file = nm_find_file(filename);
+    if (!file) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_NOT_FOUND;
+    }
+    
+    // Check if caller is owner
+    if (strcmp(file->owner, owner) != 0) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_NOT_OWNER;
+    }
+    
+    // Find the request and get the requested permissions
+    int found = 0;
+    int read_requested = 0;
+    int write_requested = 0;
+    
+    for (int i = 0; i < ns_state.request_count; i++) {
+        if (strcmp(ns_state.access_requests[i].filename, filename) == 0 &&
+            strcmp(ns_state.access_requests[i].requester, requester) == 0) {
+            // Save the requested permissions
+            read_requested = ns_state.access_requests[i].read_requested;
+            write_requested = ns_state.access_requests[i].write_requested;
+            
+            // Remove request by shifting array
+            for (int j = i; j < ns_state.request_count - 1; j++) {
+                ns_state.access_requests[j] = ns_state.access_requests[j + 1];
+            }
+            ns_state.request_count--;
+            found = 1;
+            break;
+        }
+    }
+    
+    if (!found) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_REQUEST_NOT_FOUND;
+    }
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    
+    // Grant the requested permissions
+    int result = nm_add_access(filename, requester, read_requested, write_requested);
+    
+    return result;
+}
+
+/**
+ * nm_deny_request
+ * @brief Deny an access request
+ */
+int nm_deny_request(const char* filename, const char* owner, const char* requester) {
+    pthread_mutex_lock(&ns_state.lock);
+    
+    // Check if file exists
+    FileMetadata* file = nm_find_file(filename);
+    if (!file) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_FILE_NOT_FOUND;
+    }
+    
+    // Check if caller is owner
+    if (strcmp(file->owner, owner) != 0) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_NOT_OWNER;
+    }
+    
+    // Find and remove the request
+    int found = 0;
+    for (int i = 0; i < ns_state.request_count; i++) {
+        if (strcmp(ns_state.access_requests[i].filename, filename) == 0 &&
+            strcmp(ns_state.access_requests[i].requester, requester) == 0) {
+            // Remove request by shifting array
+            for (int j = i; j < ns_state.request_count - 1; j++) {
+                ns_state.access_requests[j] = ns_state.access_requests[j + 1];
+            }
+            ns_state.request_count--;
+            found = 1;
+            break;
+        }
+    }
+    
+    if (!found) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_REQUEST_NOT_FOUND;
+    }
+    
+    pthread_mutex_unlock(&ns_state.lock);
+    save_state();
+    
+    return ERR_SUCCESS;
+}
+
+/**
  * save_state
  * @brief Persist the in-memory Name Server registry to disk (`data/nm_state.dat`).
  *
@@ -805,6 +1037,15 @@ void save_state(void) {
                     folder->acl[j].read_permission,
                     folder->acl[j].write_permission);
         }
+    }
+    
+    // Save access requests
+    fprintf(f, "%d\n", ns_state.request_count);
+    for (int i = 0; i < ns_state.request_count; i++) {
+        AccessRequest* req = &ns_state.access_requests[i];
+        fprintf(f, "%s|%s|%ld|%d|%d\n",
+                req->filename, req->requester, req->request_time,
+                req->read_requested, req->write_requested);
     }
     
     fclose(f);
@@ -855,6 +1096,20 @@ void load_state(void) {
                        folder->acl[j].username,
                        &folder->acl[j].read_permission,
                        &folder->acl[j].write_permission);
+            }
+        }
+    }
+    
+    // Load access requests
+    if (fscanf(f, "%d\n", &ns_state.request_count) == 1) {
+        for (int i = 0; i < ns_state.request_count; i++) {
+            AccessRequest* req = &ns_state.access_requests[i];
+            if (fscanf(f, "%[^|]|%[^|]|%ld|%d|%d\n",
+                   req->filename, req->requester, &req->request_time,
+                   &req->read_requested, &req->write_requested) < 3) {
+                // Old format without permissions - default to read only
+                req->read_requested = 1;
+                req->write_requested = 0;
             }
         }
     }

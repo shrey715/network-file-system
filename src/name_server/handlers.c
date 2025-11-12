@@ -981,6 +981,158 @@ void* handle_client_connection(void* arg) {
                 break;
             }
             
+            case OP_REQUESTACCESS: {
+                // Request access to a file
+                // flags field: bit 0 = read, bit 1 = write
+                int read_requested = (header.flags & 0x01) ? 1 : 0;
+                int write_requested = (header.flags & 0x02) ? 1 : 0;
+                
+                // Default to read if no flags set
+                if (!read_requested && !write_requested) {
+                    read_requested = 1;
+                }
+                
+                // First check what access they currently have
+                FileMetadata* file = nm_find_file(header.filename);
+                int current_read = 0, current_write = 0;
+                if (file) {
+                    // Check if owner
+                    if (strcmp(file->owner, header.username) == 0) {
+                        current_read = 1;
+                        current_write = 1;
+                    } else {
+                        // Check ACL
+                        for (int i = 0; i < file->acl_count; i++) {
+                            if (strcmp(file->acl[i].username, header.username) == 0) {
+                                current_read = file->acl[i].read_permission;
+                                current_write = file->acl[i].write_permission;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                int result = nm_request_access(header.filename, header.username, read_requested, write_requested);
+                
+                if (result == ERR_SUCCESS) {
+                    header.msg_type = MSG_ACK;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    
+                    char perm_str[32];
+                    if (read_requested && write_requested) {
+                        strcpy(perm_str, "read+write");
+                    } else if (write_requested) {
+                        strcpy(perm_str, "write");
+                    } else {
+                        strcpy(perm_str, "read");
+                    }
+                    
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s requested %s access to file %s", 
+                             header.username, perm_str, header.filename);
+                    log_message("NM", "INFO", msg);
+                } else if (result == ERR_ALREADY_HAS_ACCESS) {
+                    // Send back what access they have in the flags field
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.flags = (current_read ? 0x01 : 0) | (current_write ? 0x02 : 0);
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
+                break;
+            }
+            
+            case OP_VIEWREQUESTS: {
+                // View pending requests for a file (owner only)
+                char request_list[BUFFER_SIZE * 2];
+                int result = nm_view_requests(header.filename, header.username, 
+                                             request_list, sizeof(request_list));
+                
+                if (result == ERR_SUCCESS) {
+                    header.msg_type = MSG_RESPONSE;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = strlen(request_list);
+                    send_message(client_fd, &header, request_list);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
+                break;
+            }
+            
+            case OP_APPROVEREQUEST: {
+                // Approve an access request (owner only)
+                // Payload contains the username to approve
+                if (!payload) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_OPERATION_FAILED;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int result = nm_approve_request(header.filename, header.username, payload);
+                
+                if (result == ERR_SUCCESS) {
+                    header.msg_type = MSG_ACK;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s approved access request from %s for file %s", 
+                             header.username, payload, header.filename);
+                    log_message("NM", "INFO", msg);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
+                break;
+            }
+            
+            case OP_DENYREQUEST: {
+                // Deny an access request (owner only)
+                // Payload contains the username to deny
+                if (!payload) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_FILE_OPERATION_FAILED;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
+                int result = nm_deny_request(header.filename, header.username, payload);
+                
+                if (result == ERR_SUCCESS) {
+                    header.msg_type = MSG_ACK;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, sizeof(msg), "User %s denied access request from %s for file %s", 
+                             header.username, payload, header.filename);
+                    log_message("NM", "INFO", msg);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
+                break;
+            }
+            
             default:
                 header.msg_type = MSG_ERROR;
                 header.error_code = ERR_INVALID_COMMAND;

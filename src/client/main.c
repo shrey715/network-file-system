@@ -100,6 +100,10 @@ int main(int argc, char* argv[]) {
             printf("  VIEWCHECKPOINT <file> <tag> - View checkpoint content\n");
             printf("  REVERT <file> <tag>     - Revert file to checkpoint\n");
             printf("  LISTCHECKPOINTS <file>  - List all checkpoints for file\n");
+            printf("  REQUESTACCESS [-R] [-W] <file> - Request access (default: read only)\n");
+            printf("  VIEWREQUESTS <file>     - View pending access requests (owner only)\n");
+            printf("  APPROVEREQUEST <file> <user> - Approve access request (owner only)\n");
+            printf("  DENYREQUEST <file> <user>    - Deny access request (owner only)\n");
             printf("  quit/exit               - Exit client\n");
             continue;
         }
@@ -166,6 +170,30 @@ int main(int argc, char* argv[]) {
                 printf("Error: LISTCHECKPOINTS requires <filename>\n");
             } else {
                 execute_listcheckpoints(&client_state, arg1);
+            }
+        } else if (strcmp(command, "REQUESTACCESS") == 0) {
+            if (!arg1[0]) {
+                printf("Error: REQUESTACCESS requires <filename> [flags]\n");
+            } else {
+                execute_requestaccess(&client_state, arg1, flags);
+            }
+        } else if (strcmp(command, "VIEWREQUESTS") == 0) {
+            if (!arg1[0]) {
+                printf("Error: VIEWREQUESTS requires <filename>\n");
+            } else {
+                execute_viewrequests(&client_state, arg1);
+            }
+        } else if (strcmp(command, "APPROVEREQUEST") == 0) {
+            if (!arg1[0] || !arg2[0]) {
+                printf("Error: APPROVEREQUEST requires <filename> and <username>\n");
+            } else {
+                execute_approverequest(&client_state, arg1, arg2);
+            }
+        } else if (strcmp(command, "DENYREQUEST") == 0) {
+            if (!arg1[0] || !arg2[0]) {
+                printf("Error: DENYREQUEST requires <filename> and <username>\n");
+            } else {
+                execute_denyrequest(&client_state, arg1, arg2);
             }
         } else {
             printf("Error: Unknown command '%s'\n", command);

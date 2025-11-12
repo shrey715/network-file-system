@@ -32,6 +32,10 @@ int execute_checkpoint(ClientState* state, const char* filename, const char* che
 int execute_viewcheckpoint(ClientState* state, const char* filename, const char* checkpoint_tag);
 int execute_revert(ClientState* state, const char* filename, const char* checkpoint_tag);
 int execute_listcheckpoints(ClientState* state, const char* filename);
+int execute_requestaccess(ClientState* state, const char* filename, int flags);
+int execute_viewrequests(ClientState* state, const char* filename);
+int execute_approverequest(ClientState* state, const char* filename, const char* username);
+int execute_denyrequest(ClientState* state, const char* filename, const char* username);
 
 // ============ PARSER FUNCTIONS ============
 int parse_command(const char* input, char* command, char* arg1, char* arg2, int* flags);

@@ -151,6 +151,9 @@ char* get_error_message(int error_code) {
         case ERR_INVALID_PATH: return "Invalid path";
         case ERR_CHECKPOINT_NOT_FOUND: return "Checkpoint not found";
         case ERR_CHECKPOINT_EXISTS: return "Checkpoint already exists";
+        case ERR_REQUEST_EXISTS: return "Access request already exists";
+        case ERR_REQUEST_NOT_FOUND: return "Access request not found";
+        case ERR_ALREADY_HAS_ACCESS: return "Already has access";
         default: return "Unknown error";
     }
 }

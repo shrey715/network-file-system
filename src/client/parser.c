@@ -64,6 +64,31 @@ int parse_command(const char* input, char* command, char* arg1, char* arg2, int*
         return 0;
     }
     
+    // Handle REQUESTACCESS with flags
+    if (strcmp(command, "REQUESTACCESS") == 0) {
+        *flags = 0;  // Default: no flags (will be interpreted as read-only)
+        
+        token = strtok(NULL, " \t");
+        if (!token) return -1;
+        
+        // Parse flags
+        while (token && token[0] == '-') {
+            if (strcmp(token, "-R") == 0) {
+                *flags |= 0x01;  // Read flag
+            } else if (strcmp(token, "-W") == 0) {
+                *flags |= 0x02;  // Write flag
+            }
+            token = strtok(NULL, " \t");
+        }
+        
+        // The current token should be the filename
+        if (token) {
+            strcpy(arg1, token);
+        }
+        
+        return 0;
+    }
+    
     // Get first argument
     token = strtok(NULL, " \t");
     if (token) {

@@ -962,3 +962,150 @@ int execute_listcheckpoints(ClientState* state, const char* filename) {
     if (response) free(response);
     return header.error_code;
 }
+
+/**
+ * execute_requestaccess
+ * @brief Request access to a file
+ * @param flags: bit 0 = read, bit 1 = write (0 = default to read only)
+ */
+int execute_requestaccess(ClientState* state, const char* filename, int flags) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_REQUESTACCESS;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    header.flags = flags;
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        // Determine what was requested
+        int read_req = (flags & 0x01) ? 1 : 0;
+        int write_req = (flags & 0x02) ? 1 : 0;
+        if (!read_req && !write_req) read_req = 1;  // default
+        
+        char perm_str[64];
+        if (read_req && write_req) {
+            strcpy(perm_str, "read and write");
+        } else if (write_req) {
+            strcpy(perm_str, "write");
+        } else {
+            strcpy(perm_str, "read");
+        }
+        
+        printf("Access request for %s submitted successfully for '%s'.\n", perm_str, filename);
+        printf("The file owner will be able to approve or deny your request.\n");
+    } else if (header.error_code == ERR_ALREADY_HAS_ACCESS) {
+        // Parse what access they already have from the flags field
+        int has_read = (header.flags & 0x01) ? 1 : 0;
+        int has_write = (header.flags & 0x02) ? 1 : 0;
+        
+        char access_str[64];
+        if (has_read && has_write) {
+            strcpy(access_str, "read and write access");
+        } else if (has_write) {
+            strcpy(access_str, "write access");
+        } else if (has_read) {
+            strcpy(access_str, "read access");
+        } else {
+            strcpy(access_str, "access");
+        }
+        
+        printf("You already have %s to '%s'.\n", access_str, filename);
+    } else {
+        printf("Error requesting access: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_viewrequests
+ * @brief View pending access requests for a file (owner only)
+ */
+int execute_viewrequests(ClientState* state, const char* filename) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_VIEWREQUESTS;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    header.data_length = 0;
+    
+    send_message(state->nm_socket, &header, NULL);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_RESPONSE) {
+        printf("%s", response);
+    } else {
+        printf("Error viewing requests: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_approverequest
+ * @brief Approve an access request (owner only)
+ */
+int execute_approverequest(ClientState* state, const char* filename, const char* username) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_APPROVEREQUEST;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    header.data_length = strlen(username);
+    
+    send_message(state->nm_socket, &header, username);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        printf("Access request from '%s' approved successfully.\n", username);
+        printf("User '%s' has been granted access to '%s'.\n", username, filename);
+    } else {
+        printf("Error approving request: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
+
+/**
+ * execute_denyrequest
+ * @brief Deny an access request (owner only)
+ */
+int execute_denyrequest(ClientState* state, const char* filename, const char* username) {
+    MessageHeader header;
+    memset(&header, 0, sizeof(header));
+    header.msg_type = MSG_REQUEST;
+    header.op_code = OP_DENYREQUEST;
+    strcpy(header.username, state->username);
+    strcpy(header.filename, filename);
+    header.data_length = strlen(username);
+    
+    send_message(state->nm_socket, &header, username);
+    
+    char* response;
+    recv_message(state->nm_socket, &header, &response);
+    
+    if (header.msg_type == MSG_ACK) {
+        printf("Access request from '%s' denied successfully.\n", username);
+    } else {
+        printf("Error denying request: %s\n", get_error_message(header.error_code));
+    }
+    
+    if (response) free(response);
+    return header.error_code;
+}
