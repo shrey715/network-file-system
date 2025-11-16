@@ -52,7 +52,7 @@ int get_storage_server_connection(ClientState* state, const char* filename, int 
     }
     
     if (header.msg_type != MSG_RESPONSE) {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
         if (ss_info) free(ss_info);
         return header.error_code;
     }
@@ -61,7 +61,7 @@ int get_storage_server_connection(ClientState* state, const char* filename, int 
     char ss_ip[MAX_IP];
     int ss_port;
     if (parse_ss_info(ss_info, ss_ip, &ss_port) != 0) {
-        printf("Error: Invalid storage server info\n");
+        PRINT_ERR("Invalid storage server info");
         free(ss_info);
         return ERR_NETWORK_ERROR;
     }
@@ -70,7 +70,7 @@ int get_storage_server_connection(ClientState* state, const char* filename, int 
     // Connect to SS
     int ss_socket = connect_to_server(ss_ip, ss_port);
     if (ss_socket < 0) {
-        printf("Error: Failed to connect to storage server\n");
+        PRINT_ERR("Failed to connect to storage server");
         return ERR_SS_UNAVAILABLE;
     }
     
@@ -107,7 +107,7 @@ int execute_view(ClientState* state, int flags) {
             printf("(No files to display)\n");
         }
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+            PRINT_ERR("Error viewing requests: %s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -147,10 +147,10 @@ int execute_read(ClientState* state, const char* filename) {
         if (content) {
             printf("%s\n", content);
         } else {
-            printf("(empty file)\n");
+            PRINT_WARN("(empty file)");
         }
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (content) free(content);
@@ -195,9 +195,9 @@ int execute_create(ClientState* state, const char* filename) {
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("File '%s' created successfully!\n", filename);
+        PRINT_OK("File '%s' created successfully!", filename);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -236,13 +236,13 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
     if (response) free(response);
     
     if (header.msg_type != MSG_ACK) {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
         safe_close_socket(&ss_socket);
         return header.error_code;
     }
     
-    printf("Sentence locked. Enter word modifications (word_index content), then ETIRW:\n");
-    printf("  Format: <word_index> <content>\n");
+    PRINT_WARN("Sentence locked. Enter word modifications (word_index content), then ETIRW:");
+    printf("  Format: " ANSI_CYAN "<word_index> <content>" ANSI_RESET "\n");
     printf("  Type ETIRW when done.\n");
     fflush(stdout);
     
@@ -307,10 +307,10 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
             if (response) free(response);
             
             if (header.msg_type == MSG_ACK) {
-                printf("Write successful!\n");
+                PRINT_OK("Write successful!");
                 success = 1;
             } else {
-                printf("Error: %s\n", get_error_message(header.error_code));
+                PRINT_ERR("%s", get_error_message(header.error_code));
             }
             break;
         }
@@ -320,7 +320,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         char* space_ptr = strchr(line, ' ');
         
         if (!space_ptr) {
-            printf("  Invalid format. Use: <word_index> <content>\n");
+            printf("  "); PRINT_ERR("Invalid format. Use: <word_index> <content>");
             printf("  Example: 0 Hello\n");
             free(line);
             continue;
@@ -337,7 +337,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         while (*space_ptr == ' ' || *space_ptr == '\t') space_ptr++;
         
         if (strlen(space_ptr) == 0) {
-            printf("  Error: Word content cannot be empty.\n");
+            printf("  "); PRINT_ERR("Word content cannot be empty.");
             free(line);
             continue;
         }
@@ -345,7 +345,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         // Allocate new_word dynamically to handle any length
         char* new_word = strdup(space_ptr);
         if (!new_word) {
-            printf("  Error: Memory allocation failed.\n");
+            printf("  "); PRINT_ERR("Memory allocation failed.");
             free(line);
             continue;
         }
@@ -362,7 +362,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         size_t payload_len = snprintf(NULL, 0, "%d %s", word_idx, new_word) + 1;
         char* payload = malloc(payload_len);
         if (!payload) {
-            printf("  Error: Memory allocation failed.\n");
+            printf("  "); PRINT_ERR("Memory allocation failed.");
             free(new_word);
             free(line);
             continue;
@@ -379,9 +379,9 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         if (response) free(response);
         
         if (header.msg_type == MSG_ACK) {
-            printf("  -> Word %d set to: %s\n", word_idx, new_word);
+            printf("  "); PRINT_OK("-> Word %d set to: %s", word_idx, new_word);
         } else {
-            printf("  Error: %s\n", get_error_message(header.error_code));
+            printf("  "); PRINT_ERR("%s", get_error_message(header.error_code));
             printf("  (Try using a valid word index or type ETIRW to finish)\n");
         }
         
@@ -423,9 +423,9 @@ int execute_undo(ClientState* state, const char* filename) {
     safe_close_socket(&ss_socket);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Undo successful!\n");
+        PRINT_OK("Undo successful!");
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -451,7 +451,7 @@ int execute_info(ClientState* state, const char* filename) {
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -476,9 +476,9 @@ int execute_delete(ClientState* state, const char* filename) {
     send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("File '%s' deleted successfully!\n", filename);
+           PRINT_OK("File '%s' deleted successfully!", filename);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+           PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -522,7 +522,7 @@ int execute_stream(ClientState* state, const char* filename) {
         }
 
         if (header.msg_type == MSG_ERROR) {
-            printf("\nError: %s\n", get_error_message(header.error_code));
+            printf("\n"); PRINT_ERR("%s", get_error_message(header.error_code));
             if (word) free(word);
             safe_close_socket(&ss_socket);
             return header.error_code;
@@ -560,7 +560,7 @@ int execute_list(ClientState* state) {
     if (header.msg_type == MSG_RESPONSE) {
         printf("Users:\n%s", response);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -592,9 +592,9 @@ int execute_addaccess(ClientState* state, const char* filename, const char* user
     send_nm_request_and_get_response(state, &header, payload, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Access granted successfully!\n");
+           PRINT_OK("Access granted successfully!");
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+           PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -622,9 +622,9 @@ int execute_remaccess(ClientState* state, const char* filename, const char* user
     send_nm_request_and_get_response(state, &header, username, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Access removed successfully!\n");
+           PRINT_OK("Access removed successfully!");
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+           PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -653,7 +653,7 @@ int execute_exec(ClientState* state, const char* filename) {
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -683,9 +683,9 @@ int execute_createfolder(ClientState* state, const char* foldername) {
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Folder '%s' created successfully!\n", foldername);
+        PRINT_OK("Folder '%s' created successfully!", foldername);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -717,10 +717,10 @@ int execute_move(ClientState* state, const char* filename, const char* foldernam
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("File '%s' moved to folder '%s' successfully!\n", 
+        PRINT_OK("File '%s' moved to folder '%s' successfully!", 
                filename, foldername[0] ? foldername : "/");
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -758,7 +758,7 @@ int execute_viewfolder(ClientState* state, const char* foldername) {
                foldername && foldername[0] ? foldername : "/", 
                response);
     } else {
-        printf("Error: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -785,9 +785,9 @@ int execute_checkpoint(ClientState* state, const char* filename, const char* che
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Checkpoint '%s' created successfully for file '%s'.\n", checkpoint_tag, filename);
+        PRINT_OK("Checkpoint '%s' created successfully for file '%s'.", checkpoint_tag, filename);
     } else {
-        printf("Error creating checkpoint: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("Error creating checkpoint: %s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -818,7 +818,7 @@ int execute_viewcheckpoint(ClientState* state, const char* filename, const char*
         printf("%s\n", response);
         printf("=== End of checkpoint ===\n");
     } else {
-        printf("Error viewing checkpoint: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("Error viewing checkpoint: %s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -845,9 +845,9 @@ int execute_revert(ClientState* state, const char* filename, const char* checkpo
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("File '%s' successfully reverted to checkpoint '%s'.\n", filename, checkpoint_tag);
+        PRINT_OK("File '%s' successfully reverted to checkpoint '%s'.", filename, checkpoint_tag);
     } else {
-        printf("Error reverting to checkpoint: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("Error reverting to checkpoint: %s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -875,7 +875,7 @@ int execute_listcheckpoints(ClientState* state, const char* filename) {
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);
     } else {
-        printf("Error listing checkpoints: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("Error listing checkpoints: %s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -917,7 +917,7 @@ int execute_requestaccess(ClientState* state, const char* filename, int flags) {
             strcpy(perm_str, "read");
         }
         
-        printf("Access request for %s submitted successfully for '%s'.\n", perm_str, filename);
+        PRINT_OK("Access request for %s submitted successfully for '%s'.", perm_str, filename);
         printf("The file owner will be able to approve or deny your request.\n");
     } else if (header.error_code == ERR_ALREADY_HAS_ACCESS) {
         // Parse what access they already have from the flags field
@@ -935,9 +935,9 @@ int execute_requestaccess(ClientState* state, const char* filename, int flags) {
             strcpy(access_str, "access");
         }
         
-        printf("You already have %s to '%s'.\n", access_str, filename);
+        PRINT_INFO("You already have %s to '%s'.", access_str, filename);
     } else {
-        printf("Error requesting access: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -965,7 +965,7 @@ int execute_viewrequests(ClientState* state, const char* filename) {
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);
     } else {
-        printf("Error viewing requests: %s\n", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -991,10 +991,10 @@ int execute_approverequest(ClientState* state, const char* filename, const char*
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Access request from '%s' approved successfully.\n", username);
-        printf("User '%s' has been granted access to '%s'.\n", username, filename);
+           PRINT_OK("Access request from '%s' approved successfully.", username);
+           PRINT_OK("User '%s' has been granted access to '%s'.", username, filename);
     } else {
-        printf("Error approving request: %s\n", get_error_message(header.error_code));
+           PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -1020,9 +1020,9 @@ int execute_denyrequest(ClientState* state, const char* filename, const char* us
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        printf("Access request from '%s' denied successfully.\n", username);
+           PRINT_OK("Access request from '%s' denied successfully.", username);
     } else {
-        printf("Error denying request: %s\n", get_error_message(header.error_code));
+           PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);

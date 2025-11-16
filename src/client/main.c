@@ -15,8 +15,7 @@ int main(int argc, char* argv[]) {
     client_state.is_connected = 0;
     
     // Get username
-    printf("Enter username: ");
-    fflush(stdout);
+    PRINT_INFO("Enter username:");
     if (fgets(client_state.username, sizeof(client_state.username), stdin) == NULL) {
         fprintf(stderr, "Failed to read username\n");
         return 1;
@@ -26,8 +25,7 @@ int main(int argc, char* argv[]) {
     // Connect to name server
     client_state.nm_socket = connect_to_server(client_state.nm_ip, client_state.nm_port);
     if (client_state.nm_socket < 0) {
-        fprintf(stderr, "Failed to connect to Name Server at %s:%d\n", 
-                client_state.nm_ip, client_state.nm_port);
+        PRINT_ERR("Failed to connect to Name Server at %s:%d", client_state.nm_ip, client_state.nm_port);
         return 1;
     }
     
@@ -45,9 +43,9 @@ int main(int argc, char* argv[]) {
     recv_message(client_state.nm_socket, &header, &response);
     if (header.msg_type == MSG_ACK) {
         client_state.is_connected = 1;
-        printf("Connected to Name Server as '%s'\n", client_state.username);
+        PRINT_OK("Connected to Name Server as '%s'", client_state.username);
     } else {
-        fprintf(stderr, "Failed to register with Name Server\n");
+        PRINT_ERR("Failed to register with Name Server");
         close(client_state.nm_socket);
         return 1;
     }
@@ -55,11 +53,10 @@ int main(int argc, char* argv[]) {
     
     // Main command loop
     char input[BUFFER_SIZE];
-    printf("\nEnter commands (type 'help' for list of commands, 'quit' to exit):\n");
+    PRINT_INFO("\nEnter commands (type 'help' for list of commands, 'quit' to exit):");
     
     while (1) {
-        printf("> ");
-        fflush(stdout);
+    PRINT_PROMPT();
         
         if (fgets(input, sizeof(input), stdin) == NULL) {
             break;
@@ -79,8 +76,10 @@ int main(int argc, char* argv[]) {
         }
         
         if (strcmp(input, "help") == 0) {
-            printf("\nAvailable commands:\n");
-            printf("\nFile System:\n");
+            printf("\n");
+            printf(ANSI_BOLD "Available commands:" ANSI_RESET "\n");
+            printf("\n");
+            printf(ANSI_CYAN "File System:" ANSI_RESET "\n");
             printf("  file create <filename>         - Create new file\n");
             printf("  file delete <filename>         - Delete file\n");
             printf("  file read <filename>           - Read file content\n");
@@ -89,30 +88,30 @@ int main(int argc, char* argv[]) {
             printf("  file move <file> <folder>      - Move file to folder\n");
             printf("  file stream <filename>         - Stream file content\n");
             printf("  file exec <filename>           - Execute file as commands\n");
-            
-            printf("\nEdit System:\n");
+            printf("\n");
+            printf(ANSI_CYAN "Edit System:" ANSI_RESET "\n");
             printf("  edit <filename> <idx>        - Edit sentence at index\n");
             printf("  edit undo <filename>         - Undo last change\n");
-            
-            printf("\nFolder System:\n");
+            printf("\n");
+            printf(ANSI_CYAN "Folder System:" ANSI_RESET "\n");
             printf("  folder create <name>         - Create new folder\n");
             printf("  folder view [path]           - List folder contents\n");
-            
-            printf("\nVersion Control:\n");
+            printf("\n");
+            printf(ANSI_CYAN "Version Control:" ANSI_RESET "\n");
             printf("  version create <file> <tag>  - Create checkpoint\n");
             printf("  version view <file> <tag>    - View checkpoint content\n");
             printf("  version revert <file> <tag>  - Revert to checkpoint\n");
             printf("  version list <file>          - List all checkpoints\n");
-            
-            printf("\nAccess Control:\n");
+            printf("\n");
+            printf(ANSI_CYAN "Access Control:" ANSI_RESET "\n");
             printf("  access grant <file> <user> [-R|-W]   - Grant access\n");
             printf("  access revoke <file> <user>          - Revoke access\n");
             printf("  access request <file> [-R] [-W]      - Request access\n");
             printf("  access requests <file>               - View requests (owner)\n");
             printf("  access approve <file> <user>         - Approve request (owner)\n");
             printf("  access deny <file> <user>            - Deny request (owner)\n");
-            
-            printf("\nUser System:\n");
+            printf("\n");
+            printf(ANSI_CYAN "User System:" ANSI_RESET "\n");
             printf("  user list                    - List all users\n");
             printf("\nquit/exit - Exit client\n\n");
             continue;
@@ -120,7 +119,7 @@ int main(int argc, char* argv[]) {
         
         int result = parse_command(input, command, subcommand, arg1, arg2, &flags);
         if (result < 0) {
-            printf("Error: Invalid command format\n");
+            PRINT_ERR("Invalid command format");
             continue;
         }
         
@@ -143,7 +142,7 @@ int main(int argc, char* argv[]) {
             } else if (strcmp(subcommand, "exec") == 0) {
                 execute_exec(&client_state, arg1);
             } else {
-                printf("Error: Unknown file subcommand '%s'\n", subcommand);
+                PRINT_ERR("Unknown file subcommand '%s'", subcommand);
             }
         }
         else if (strcmp(command, "edit") == 0) {
@@ -161,36 +160,36 @@ int main(int argc, char* argv[]) {
             } else if (strcmp(subcommand, "view") == 0) {
                 execute_viewfolder(&client_state, arg1);
             } else {
-                printf("Error: Unknown folder subcommand '%s'\n", subcommand);
+                PRINT_ERR("Unknown folder subcommand '%s'", subcommand);
             }
         }
         else if (strcmp(command, "version") == 0) {
             if (strcmp(subcommand, "create") == 0) {
                 if (!arg1[0] || !arg2[0]) {
-                    printf("Error: version create requires <filename> <tag>\n");
+                    PRINT_ERR("version create requires <filename> <tag>");
                 } else {
                     execute_checkpoint(&client_state, arg1, arg2);
                 }
             } else if (strcmp(subcommand, "view") == 0) {
                 if (!arg1[0] || !arg2[0]) {
-                    printf("Error: version view requires <filename> <tag>\n");
+                    PRINT_ERR("version view requires <filename> <tag>");
                 } else {
                     execute_viewcheckpoint(&client_state, arg1, arg2);
                 }
             } else if (strcmp(subcommand, "revert") == 0) {
                 if (!arg1[0] || !arg2[0]) {
-                    printf("Error: version revert requires <filename> <tag>\n");
+                    PRINT_ERR("version revert requires <filename> <tag>");
                 } else {
                     execute_revert(&client_state, arg1, arg2);
                 }
             } else if (strcmp(subcommand, "list") == 0) {
                 if (!arg1[0]) {
-                    printf("Error: version list requires <filename>\n");
+                    PRINT_ERR("version list requires <filename>");
                 } else {
                     execute_listcheckpoints(&client_state, arg1);
                 }
             } else {
-                printf("Error: Unknown version subcommand '%s'\n", subcommand);
+                PRINT_ERR("Unknown version subcommand '%s'", subcommand);
             }
         }
         else if (strcmp(command, "access") == 0) {
@@ -209,25 +208,25 @@ int main(int argc, char* argv[]) {
             } else if (strcmp(subcommand, "deny") == 0) {
                 execute_denyrequest(&client_state, arg1, arg2);
             } else {
-                printf("Error: Unknown access subcommand '%s'\n", subcommand);
+                PRINT_ERR("Unknown access subcommand '%s'", subcommand);
             }
         }
         else if (strcmp(command, "user") == 0) {
             if (strcmp(subcommand, "list") == 0) {
                 execute_list(&client_state);
             } else {
-                printf("Error: Unknown user subcommand '%s'\n", subcommand);
+                PRINT_ERR("Unknown user subcommand '%s'", subcommand);
             }
         }
         else {
-            printf("Error: Unknown command '%s'\n", command);
+            PRINT_ERR("Unknown command '%s'", command);
             printf("Type 'help' for available commands\n");
         }
     }
     
     // Cleanup
     close(client_state.nm_socket);
-    printf("Disconnected from Name Server\n");
+    PRINT_INFO("Disconnected from Name Server");
     
     return 0;
 }

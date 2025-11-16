@@ -18,6 +18,60 @@
 #include <signal.h>
 #include <pthread.h>
 
+// ============ ANSI COLOR CODES ============
+#define ANSI_RESET "\033[0m"
+#define ANSI_BOLD "\033[1m"
+
+// Foreground colors
+#define ANSI_BLACK "\033[30m"
+#define ANSI_RED "\033[31m"
+#define ANSI_GREEN "\033[32m"
+#define ANSI_YELLOW "\033[33m"
+#define ANSI_BLUE "\033[34m"
+#define ANSI_MAGENTA "\033[35m"
+#define ANSI_CYAN "\033[36m"
+#define ANSI_WHITE "\033[37m"
+
+// Bright foreground colors
+#define ANSI_BRIGHT_BLACK "\033[90m"
+#define ANSI_BRIGHT_RED "\033[91m"
+#define ANSI_BRIGHT_GREEN "\033[92m"
+#define ANSI_BRIGHT_YELLOW "\033[93m"
+#define ANSI_BRIGHT_BLUE "\033[94m"
+#define ANSI_BRIGHT_MAGENTA "\033[95m"
+#define ANSI_BRIGHT_CYAN "\033[96m"
+#define ANSI_BRIGHT_WHITE "\033[97m"
+
+// Global toggle to enable/disable colors at runtime. Define in one C file.
+extern int enable_colors;
+
+// Convenience print macros that respect enable_colors.
+#define PRINT_ERR(fmt, ...) do { \
+    if (enable_colors) printf(ANSI_BRIGHT_RED "Error: " fmt ANSI_RESET "\n", ##__VA_ARGS__); \
+    else printf("Error: " fmt "\n", ##__VA_ARGS__); \
+} while(0)
+
+#define PRINT_OK(fmt, ...) do { \
+    if (enable_colors) printf(ANSI_GREEN fmt ANSI_RESET "\n", ##__VA_ARGS__); \
+    else printf(fmt "\n", ##__VA_ARGS__); \
+} while(0)
+
+#define PRINT_WARN(fmt, ...) do { \
+    if (enable_colors) printf(ANSI_YELLOW fmt ANSI_RESET "\n", ##__VA_ARGS__); \
+    else printf(fmt "\n", ##__VA_ARGS__); \
+} while(0)
+
+#define PRINT_INFO(fmt, ...) do { \
+    if (enable_colors) printf(ANSI_CYAN fmt ANSI_RESET "\n", ##__VA_ARGS__); \
+    else printf(fmt "\n", ##__VA_ARGS__); \
+} while(0)
+
+#define PRINT_PROMPT() do { \
+    if (enable_colors) printf(ANSI_BRIGHT_BLUE "> " ANSI_RESET); \
+    else printf("> "); \
+    fflush(stdout); \
+} while(0)
+
 // ============ CONSTANTS ============
 #define MAX_FILENAME 256
 #define MAX_FOLDERNAME 256

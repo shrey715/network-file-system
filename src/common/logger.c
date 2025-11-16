@@ -3,6 +3,9 @@
 /* Thread-safe logging mutex used by the logging functions. */
 static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/* Global flag to enable/disable colorized console output. Default enabled. */
+int enable_colors = 1;
+
 /**
  * log_message
  * @brief Thread-safe logging helper that writes a timestamped message to
@@ -23,8 +26,28 @@ void log_message(const char* component, const char* level, const char* message) 
     char timestamp[64];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
     
-    // Print to console
-    printf("[%s] [%s] [%s] %s\n", timestamp, component, level, message);
+    // Determine color based on level
+    const char* level_color = ANSI_RESET;
+    if (strcmp(level, "ERROR") == 0) {
+        level_color = ANSI_BRIGHT_RED;
+    } else if (strcmp(level, "WARN") == 0) {
+        level_color = ANSI_YELLOW;
+    } else if (strcmp(level, "INFO") == 0) {
+        level_color = ANSI_CYAN;
+    } else if (strcmp(level, "DEBUG") == 0) {
+        level_color = ANSI_BRIGHT_BLACK;
+    }
+
+    // Print to console with colors (if enabled)
+    if (enable_colors) {
+        printf("%s[%s]%s %s[%s]%s %s[%s]%s %s\n", 
+               ANSI_BRIGHT_BLACK, timestamp, ANSI_RESET,
+               ANSI_BLUE, component, ANSI_RESET,
+               level_color, level, ANSI_RESET,
+               message);
+    } else {
+        printf("[%s] [%s] [%s] %s\n", timestamp, component, level, message);
+    }
     fflush(stdout);
     
     // Write to log file
