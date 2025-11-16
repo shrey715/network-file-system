@@ -102,20 +102,10 @@ static void clear_line(const char* prompt, int buf_len) {
 static void redraw_line(const char* prompt, const char* buffer, int cursor_pos) {
     printf("\r%s%s\033[K", prompt, buffer);
     
-    // Move cursor to correct position
-    int prompt_len = 0;
-    const char* p = prompt;
-    while (*p) {
-        if (*p == '\033') {
-            // Skip ANSI escape sequences when calculating length
-            while (*p && *p != 'm') p++;
-            if (*p) p++;
-        } else {
-            prompt_len++;
-            p++;
-        }
-    }
+    // Calculate visual prompt length (excluding ANSI codes)
+    int prompt_len = visual_strlen(prompt);
     
+    // Move cursor to correct position
     printf("\r\033[%dC", prompt_len + cursor_pos);
     fflush(stdout);
 }
@@ -123,10 +113,12 @@ static void redraw_line(const char* prompt, const char* buffer, int cursor_pos) 
 char* read_line_with_history(InputHistory* hist, const char* prompt) {
     // Check if stdin is a terminal
     if (!isatty(STDIN_FILENO)) {
-        // Fallback to fgets for non-terminal input
-        printf("%s", prompt);
+        // Fallback to fgets for non-terminal input. Precede with CR to ensure
+        // we're at column 0 when printing the prompt in case output wasn't
+        // terminated by a newline previously.
+        printf("\r%s", prompt);
         fflush(stdout);
-        
+
         char buffer[MAX_INPUT_LENGTH];
         if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
             return NULL;
@@ -139,7 +131,7 @@ char* read_line_with_history(InputHistory* hist, const char* prompt) {
         return NULL;
     }
     
-    printf("%s", prompt);
+    printf("\r%s", prompt);
     fflush(stdout);
     
     char buffer[MAX_INPUT_LENGTH];
@@ -233,18 +225,8 @@ char* read_line_with_history(InputHistory* hist, const char* prompt) {
                     case 'H':  // Home
                         if (cursor_pos > 0) {
                             printf("\r");
-                            // Skip prompt
-                            int prompt_len = 0;
-                            const char* p = prompt;
-                            while (*p) {
-                                if (*p == '\033') {
-                                    while (*p && *p != 'm') p++;
-                                    if (*p) p++;
-                                } else {
-                                    prompt_len++;
-                                    p++;
-                                }
-                            }
+                            // Use visual_strlen instead of manual counting
+                            int prompt_len = visual_strlen(prompt);
                             printf("\033[%dC", prompt_len);
                             cursor_pos = 0;
                             fflush(stdout);
@@ -370,6 +352,7 @@ char* read_line_with_history(InputHistory* hist, const char* prompt) {
         strncpy(result, buffer, buf_len);
         result[buf_len] = '\0';
     }
-    
+    printf("\r");
+    fflush(stdout);
     return result;
 }

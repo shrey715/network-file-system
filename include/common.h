@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <pthread.h>
+#include "table.h"
 
 // ============ ANSI COLOR CODES ============
 #define ANSI_RESET "\033[0m"
@@ -202,6 +203,7 @@ void log_message(const char* component, const char* level, const char* message);
 void log_operation(const char* component, const char* username, const char* operation, const char* filename, int status);
 
 // ============ UTILITY FUNCTIONS ============
+int visual_strlen(const char* str);  // Calculate visual width excluding ANSI codes
 char* read_file_content(const char* filepath);
 int write_file_content(const char* filepath, const char* content);
 int file_exists(const char* filepath);

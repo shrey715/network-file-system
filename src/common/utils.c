@@ -1,4 +1,41 @@
 #include "common.h"
+#include <ctype.h>
+
+/**
+ * visual_strlen
+ * @brief Calculate the visual length of a string, excluding ANSI escape sequences.
+ * 
+ * ANSI codes follow the pattern: ESC [ ... m
+ * This function skips those sequences when counting characters.
+ * 
+ * @param str Input string (may contain ANSI codes)
+ * @return Visual character count
+ */
+int visual_strlen(const char* str) {
+    if (str == NULL) {
+        return 0;
+    }
+    
+    int len = 0;
+    const char* p = str;
+    
+    while (*p) {
+        if (*p == '\033') {  // ESC character
+            // Skip until we find 'm' (end of ANSI sequence)
+            while (*p && *p != 'm') {
+                p++;
+            }
+            if (*p == 'm') {
+                p++;  // Skip the 'm' itself
+            }
+        } else {
+            len++;
+            p++;
+        }
+    }
+    
+    return len;
+}
 
 /**
  * read_file_content

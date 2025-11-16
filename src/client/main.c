@@ -9,7 +9,7 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Usage: %s <nm_ip> <nm_port>\n", argv[0]);
         return 1;
     }
-    
+
     // Initialize client state
     strcpy(client_state.nm_ip, argv[1]);
     client_state.nm_port = atoi(argv[2]);
@@ -57,7 +57,6 @@ int main(int argc, char* argv[]) {
     init_history(&history);
     
     PRINT_INFO("\nEnter commands (type 'help' for list of commands, 'quit' to exit):");
-    printf("Use Up/Down arrows for command history\n\n");
     
     // Main command loop
     while (1) {
@@ -235,7 +234,8 @@ int main(int argc, char* argv[]) {
             PRINT_ERR("Unknown command '%s'", command);
             printf("Type 'help' for available commands\n");
         }
-        
+        printf("\n");
+        fflush(stdout);
         free(input);
     }
     

@@ -1,5 +1,6 @@
 #include "common.h"
 #include "client.h"
+#include <ctype.h>
 
 /**
  * send_nm_request_and_get_response
@@ -97,17 +98,81 @@ int execute_view(ClientState* state, int flags) {
     send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        if (flags & 2) {  // -l flag
-            printf("%-20s %5s %5s %16s %s\n", "Filename", "Words", "Chars", "Last Access", "Owner");
-            printf("------------------------------------------------------------\n");
-        }
-        if (response && strlen(response) > 0) {
-            printf("%s", response);
+        if (flags & 2) {  // -l flag (long listing with table formatting)
+            // Create and initialize table
+            Table table;
+            table_init(&table);
+            
+            // Add columns with appropriate alignment
+            table_add_column(&table, "Filename", ALIGN_LEFT);
+            table_add_column(&table, "Words", ALIGN_RIGHT);
+            table_add_column(&table, "Chars", ALIGN_RIGHT);
+            table_add_column(&table, "Last Access", ALIGN_LEFT);
+            table_add_column(&table, "Owner", ALIGN_LEFT);
+            
+            // Parse response line by line
+            if (response && strlen(response) > 0) {
+                char* response_copy = strdup(response);
+                if (response_copy) {
+                    char* line = strtok(response_copy, "\n");
+                    while (line != NULL) {
+                        char* p = line;
+                        // Skip leading whitespace (spaces/tabs) that may come from NM
+                        while (*p && (*p == ' ' || *p == '\t')) p++;
+
+                        // Skip empty lines
+                        if (*p == '\0') {
+                            line = strtok(NULL, "\n");
+                            continue;
+                        }
+
+                        char filename[MAX_FILENAME];
+                        int words, chars;
+                        char lastaccess[32];
+                        char owner[MAX_USERNAME];
+
+                        // Parse the trimmed line format from name server
+                        if (sscanf(p, "%s %d %d %s %s", 
+                                  filename, &words, &chars, lastaccess, owner) == 5) {
+                            table_add_row(&table);
+                            int row = table.num_rows - 1;
+
+                            table_set_cell(&table, row, 0, filename);
+                            table_set_cell_int(&table, row, 1, words);
+                            table_set_cell_int(&table, row, 2, chars);
+                            table_set_cell(&table, row, 3, lastaccess);
+                            table_set_cell(&table, row, 4, owner);
+                        }
+
+                        line = strtok(NULL, "\n");
+                    }
+                    free(response_copy);
+                }
+                
+                // Print the formatted table
+                if (table.num_rows > 0) {
+                    table_print(&table);
+                } else {
+                    printf("(No files to display)\n");
+                }
+                table_free(&table);
+            } else {
+                printf("(No files to display)\n");
+            }
         } else {
-            printf("(No files to display)\n");
+            // Simple listing (no table)
+            if (response && strlen(response) > 0) {
+                // Trim leading whitespace that may be introduced by NM
+                char* trimmed = response;
+                while (*trimmed && (*trimmed == ' ' || *trimmed == '\t')) trimmed++;
+                printf("%s", trimmed);
+                if (trimmed[strlen(trimmed) - 1] != '\n') printf("\n");
+            } else {
+                printf("(No files to display)\n");
+            }
         }
     } else {
-            PRINT_ERR("Error viewing requests: %s", get_error_message(header.error_code));
+        PRINT_ERR("%s", get_error_message(header.error_code));
     }
     
     if (response) free(response);
@@ -145,7 +210,8 @@ int execute_read(ClientState* state, const char* filename) {
     
     if (header.msg_type == MSG_RESPONSE) {
         if (content) {
-            printf("%s\n", content);
+            printf("%s", content);
+            if (content[strlen(content) - 1] != '\n') printf("\n");
         } else {
             PRINT_WARN("(empty file)");
         }
@@ -449,7 +515,10 @@ int execute_info(ClientState* state, const char* filename) {
     send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        printf("%s", response);
+        if (response) {
+            printf("%s", response);
+            if (response[strlen(response) - 1] != '\n') printf("\n");
+        }
     } else {
         PRINT_ERR("%s", get_error_message(header.error_code));
     }
@@ -558,7 +627,12 @@ int execute_list(ClientState* state) {
     send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        printf("Users:\n%s", response);
+        if (response) {
+            printf("Users:\n%s", response);
+            if (response[strlen(response) - 1] != '\n') printf("\n");
+        } else {
+            printf("Users:\n");
+        }
     } else {
         PRINT_ERR("%s", get_error_message(header.error_code));
     }
@@ -651,7 +725,10 @@ int execute_exec(ClientState* state, const char* filename) {
     send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        printf("%s", response);
+        if (response) {
+            printf("%s", response);
+            if (response[strlen(response) - 1] != '\n') printf("\n");
+        }
     } else {
         PRINT_ERR("%s", get_error_message(header.error_code));
     }
@@ -754,9 +831,14 @@ int execute_viewfolder(ClientState* state, const char* foldername) {
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        printf("Contents of '%s':\n%s", 
-               foldername && foldername[0] ? foldername : "/", 
-               response);
+        if (response) {
+            printf("Contents of '%s':\n%s", 
+                   foldername && foldername[0] ? foldername : "/", 
+                   response);
+            if (response[strlen(response) - 1] != '\n') printf("\n");
+        } else {
+            printf("Contents of '%s':\n", foldername && foldername[0] ? foldername : "/");
+        }
     } else {
         PRINT_ERR("%s", get_error_message(header.error_code));
     }
@@ -873,7 +955,10 @@ int execute_listcheckpoints(ClientState* state, const char* filename) {
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        printf("%s", response);
+        if (response) {
+            printf("%s", response);
+            if (response[strlen(response) - 1] != '\n') printf("\n");
+        }
     } else {
         PRINT_ERR("Error listing checkpoints: %s", get_error_message(header.error_code));
     }
@@ -963,7 +1048,10 @@ int execute_viewrequests(ClientState* state, const char* filename) {
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
-        printf("%s", response);
+        if (response) {
+            printf("%s", response);
+            if (response[strlen(response) - 1] != '\n') printf("\n");
+        }
     } else {
         PRINT_ERR("%s", get_error_message(header.error_code));
     }
