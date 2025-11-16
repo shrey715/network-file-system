@@ -5,6 +5,35 @@
 
 // ============ DATA STRUCTURES ============
 
+// Trie node for efficient file search
+typedef struct TrieNode {
+    struct TrieNode* children[256];  // ASCII character set
+    int file_index;                   // Index in files array (-1 if not a file)
+    int is_end_of_path;              // Flag to mark end of file path
+} TrieNode;
+
+// LRU Cache node for recent file lookups
+typedef struct CacheNode {
+    char key[MAX_PATH];              // Full file path
+    int file_index;                  // Index in files array
+    struct CacheNode* prev;
+    struct CacheNode* next;
+    time_t last_access;              // Timestamp of last access
+} CacheNode;
+
+// LRU Cache structure
+typedef struct {
+    CacheNode* head;                 // Most recently used
+    CacheNode* tail;                 // Least recently used
+    CacheNode* nodes[LRU_CACHE_SIZE];
+    int size;
+    int capacity;
+    pthread_mutex_t lock;
+    // Statistics
+    long hits;
+    long misses;
+} LRUCache;
+
 // Access Control Entry
 typedef struct {
     char username[MAX_USERNAME];
@@ -85,10 +114,29 @@ typedef struct {
     AccessRequest access_requests[MAX_FILES];  // Max one request per file per user (simplified)
     int request_count;
     
+    // Efficient search structures
+    TrieNode* file_trie_root;        // Trie for O(m) file lookups
+    LRUCache* file_cache;             // LRU cache for frequent lookups
+    
     pthread_mutex_t lock;
 } NameServerState;
 
 // ============ FUNCTION DECLARATIONS ============
+
+// Trie operations
+TrieNode* trie_create_node(void);
+void trie_insert(TrieNode* root, const char* path, int file_index);
+int trie_search(TrieNode* root, const char* path);
+void trie_delete(TrieNode* root, const char* path);
+void trie_free(TrieNode* root);
+
+// LRU Cache operations
+LRUCache* cache_create(int capacity);
+int cache_get(LRUCache* cache, const char* key);
+void cache_put(LRUCache* cache, const char* key, int file_index);
+void cache_invalidate(LRUCache* cache, const char* key);
+void cache_free(LRUCache* cache);
+void cache_print_stats(LRUCache* cache);
 
 // File registry operations
 int nm_register_file(const char* filename, const char* folder_path, const char* owner, int ss_id);
@@ -123,6 +171,9 @@ int nm_deny_request(const char* filename, const char* owner, const char* request
 // Handlers
 void* handle_client_connection(void* arg);
 void* handle_ss_connection(void* arg);
+
+// Monitoring
+void nm_print_search_stats(void);
 
 // Persistence
 void save_state(void);

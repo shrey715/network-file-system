@@ -65,7 +65,20 @@ int nm_register_file(const char* filename, const char* folder_path, const char* 
     file->acl[0].write_permission = 1;
     file->acl_count = 1;
     
+    int file_idx = ns_state.file_count;
     ns_state.file_count++;
+    
+    // Insert into Trie for efficient search
+    char full_path[MAX_PATH];
+    if (folder_path && strlen(folder_path) > 0) {
+        snprintf(full_path, MAX_PATH, "%s/%s", folder_path, filename);
+    } else {
+        snprintf(full_path, MAX_PATH, "%s", filename);
+    }
+    
+    if (ns_state.file_trie_root) {
+        trie_insert(ns_state.file_trie_root, full_path, file_idx);
+    }
     
     pthread_mutex_unlock(&ns_state.lock);
     
@@ -81,7 +94,12 @@ int nm_register_file(const char* filename, const char* folder_path, const char* 
 
 /**
  * nm_find_file
- * @brief Look up a file by its full path or just filename.
+ * @brief Look up a file by its full path or just filename using efficient search.
+ *
+ * Uses two-level caching strategy:
+ * 1. LRU Cache: O(1) lookup for recently accessed files
+ * 2. Trie: O(m) lookup where m is path length
+ * 3. Linear fallback: Only if Trie/cache unavailable
  *
  * This function handles both formats:
  * - Full path: "projects/backend/server.py" 
@@ -91,9 +109,53 @@ int nm_register_file(const char* filename, const char* folder_path, const char* 
  * @return Pointer to FileMetadata on success, or NULL if not found.
  */
 FileMetadata* nm_find_file(const char* filename) {
-    // Check if filename contains a path
+    // Construct full path for search
+    char full_path[MAX_PATH];
     const char* last_slash = strrchr(filename, '/');
     
+    if (last_slash) {
+        strncpy(full_path, filename, MAX_PATH - 1);
+        full_path[MAX_PATH - 1] = '\0';
+    } else {
+        // Root file - use filename as-is
+        snprintf(full_path, MAX_PATH, "%s", filename);
+    }
+    
+    // LEVEL 1: Check LRU cache first (O(1) for cache hits)
+    if (ns_state.file_cache) {
+        int cached_index = cache_get(ns_state.file_cache, full_path);
+        if (cached_index >= 0 && cached_index < ns_state.file_count) {
+            // Verify cache entry is still valid
+            FileMetadata* file = &ns_state.files[cached_index];
+            char file_full_path[MAX_PATH];
+            if (strlen(file->folder_path) > 0) {
+                snprintf(file_full_path, MAX_PATH, "%s/%s", file->folder_path, file->filename);
+            } else {
+                snprintf(file_full_path, MAX_PATH, "%s", file->filename);
+            }
+            
+            if (strcmp(file_full_path, full_path) == 0) {
+                return file;  // Cache hit!
+            }
+        }
+    }
+    
+    // LEVEL 2: Check Trie (O(m) where m is path length)
+    if (ns_state.file_trie_root) {
+        int trie_index = trie_search(ns_state.file_trie_root, full_path);
+        if (trie_index >= 0 && trie_index < ns_state.file_count) {
+            FileMetadata* file = &ns_state.files[trie_index];
+            
+            // Add to cache for future O(1) lookups
+            if (ns_state.file_cache) {
+                cache_put(ns_state.file_cache, full_path, trie_index);
+            }
+            
+            return file;  // Found in Trie
+        }
+    }
+    
+    // LEVEL 3: Fallback to linear search (O(N) - only if Trie unavailable)
     if (last_slash) {
         // Filename contains path - parse it
         char folder_path[MAX_PATH];
@@ -108,6 +170,15 @@ FileMetadata* nm_find_file(const char* filename) {
         for (int i = 0; i < ns_state.file_count; i++) {
             if (strcmp(ns_state.files[i].filename, base_filename) == 0 &&
                 strcmp(ns_state.files[i].folder_path, folder_path) == 0) {
+                
+                // Add to Trie and cache for future lookups
+                if (ns_state.file_trie_root) {
+                    trie_insert(ns_state.file_trie_root, full_path, i);
+                }
+                if (ns_state.file_cache) {
+                    cache_put(ns_state.file_cache, full_path, i);
+                }
+                
                 return &ns_state.files[i];
             }
         }
@@ -116,6 +187,15 @@ FileMetadata* nm_find_file(const char* filename) {
         for (int i = 0; i < ns_state.file_count; i++) {
             if (strcmp(ns_state.files[i].filename, filename) == 0 &&
                 ns_state.files[i].folder_path[0] == '\0') {
+                
+                // Add to Trie and cache
+                if (ns_state.file_trie_root) {
+                    trie_insert(ns_state.file_trie_root, full_path, i);
+                }
+                if (ns_state.file_cache) {
+                    cache_put(ns_state.file_cache, full_path, i);
+                }
+                
                 return &ns_state.files[i];
             }
         }
@@ -137,6 +217,27 @@ FileMetadata* nm_find_file(const char* filename) {
  */
 int nm_delete_file(const char* filename) {
     pthread_mutex_lock(&ns_state.lock);
+    
+    // Construct full path for Trie/cache invalidation
+    FileMetadata* file = nm_find_file(filename);
+    if (file) {
+        char full_path[MAX_PATH];
+        if (strlen(file->folder_path) > 0) {
+            snprintf(full_path, MAX_PATH, "%s/%s", file->folder_path, file->filename);
+        } else {
+            snprintf(full_path, MAX_PATH, "%s", file->filename);
+        }
+        
+        // Remove from Trie
+        if (ns_state.file_trie_root) {
+            trie_delete(ns_state.file_trie_root, full_path);
+        }
+        
+        // Invalidate cache entry
+        if (ns_state.file_cache) {
+            cache_invalidate(ns_state.file_cache, full_path);
+        }
+    }
     
     int found = -1;
     for (int i = 0; i < ns_state.file_count; i++) {
@@ -1116,4 +1217,38 @@ void load_state(void) {
     
     fclose(f);
     log_message("NM", "INFO", "Loaded persistent state");
+    
+    // Rebuild Trie from loaded files for efficient search
+    if (ns_state.file_trie_root) {
+        for (int i = 0; i < ns_state.file_count; i++) {
+            FileMetadata* file = &ns_state.files[i];
+            char full_path[MAX_PATH];
+            
+            if (strlen(file->folder_path) > 0) {
+                snprintf(full_path, MAX_PATH, "%s/%s", file->folder_path, file->filename);
+            } else {
+                snprintf(full_path, MAX_PATH, "%s", file->filename);
+            }
+            
+            trie_insert(ns_state.file_trie_root, full_path, i);
+        }
+        
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Rebuilt Trie with %d files for efficient search", ns_state.file_count);
+        log_message("NM", "INFO", msg);
+    }
+}
+
+/**
+ * nm_print_search_stats
+ * @brief Print statistics about search performance for monitoring.
+ */
+void nm_print_search_stats(void) {
+    if (ns_state.file_cache) {
+        cache_print_stats(ns_state.file_cache);
+    }
+    
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Total files indexed: %d", ns_state.file_count);
+    log_message("NM", "INFO", msg);
 }

@@ -25,13 +25,24 @@ int main(int argc, char* argv[]) {
     memset(&ns_state, 0, sizeof(ns_state));
     pthread_mutex_init(&ns_state.lock, NULL);
     
+    // Initialize efficient search structures
+    ns_state.file_trie_root = trie_create_node();
+    ns_state.file_cache = cache_create(LRU_CACHE_SIZE);
+    
+    if (!ns_state.file_trie_root || !ns_state.file_cache) {
+        log_message("NM", "ERROR", "Failed to initialize search structures");
+        return 1;
+    }
+    
+    log_message("NM", "INFO", "Initialized Trie and LRU cache for efficient file search");
+    
     // Create directories
     create_directory("logs");
     create_directory("data");
     
     log_message("NM", "INFO", "Name Server starting");
     
-    // Load persistent state
+    // Load persistent state (will rebuild Trie from loaded files)
     load_state();
     
     // Create server socket
@@ -69,6 +80,16 @@ int main(int argc, char* argv[]) {
     }
     
     close(server_socket);
+    
+    // Cleanup search structures
+    if (ns_state.file_cache) {
+        cache_print_stats(ns_state.file_cache);
+        cache_free(ns_state.file_cache);
+    }
+    if (ns_state.file_trie_root) {
+        trie_free(ns_state.file_trie_root);
+    }
+    
     pthread_mutex_destroy(&ns_state.lock);
     return 0;
 }
