@@ -9,18 +9,23 @@ A simplified, shared document system with support for concurrency and access con
 ## Features
 
 ### Core Functionalities (150 points)
-1. ✅ **VIEW** - List files with various flags (-a, -l)
-2. ✅ **READ** - Read file contents
-3. ✅ **CREATE** - Create new files
-4. ✅ **WRITE** - Write to files at word level with sentence locking
-5. ✅ **UNDO** - Revert last file changes
-6. ✅ **INFO** - Get file metadata and details
-7. ✅ **DELETE** - Delete files (owner only)
-8. ✅ **STREAM** - Stream file content word-by-word
-9. ✅ **LIST** - List all registered users
-10. ✅ **ADDACCESS** - Add read/write access to users
-11. ✅ **REMACCESS** - Remove user access
-12. ✅ **EXEC** - Execute file contents as shell commands
+1. ✅ **file list** - List files with various flags (-a, -l)
+2. ✅ **file read** - Read file contents
+3. ✅ **file create** - Create new files
+4. ✅ **edit** - Write to files at word level with sentence locking
+5. ✅ **edit undo** - Revert last file changes
+6. ✅ **file info** - Get file metadata and details
+7. ✅ **file delete** - Delete files (owner only)
+8. ✅ **file stream** - Stream file content word-by-word
+9. ✅ **user list** - List all registered users
+10. ✅ **access grant** - Add read/write access to users
+11. ✅ **access revoke** - Remove user access
+12. ✅ **file exec** - Execute file contents as shell commands
+
+### Bonus Features
+- ✅ **folder create/view** - Hierarchical folder structure
+- ✅ **version create/view/revert/list** - Checkpoint-based version control
+- ✅ **access request/approve/deny** - Access request workflow
 
 ### System Requirements (40 points)
 - ✅ Data Persistence - Files stored persistently
@@ -112,50 +117,82 @@ This script will:
 - Start two Storage Servers on ports 9000 and 9001
 - Keep all servers running until you press Ctrl+C
 
+## Command Structure
+
+The client uses a hierarchical command structure organized into logical categories:
+
+- **`file`** - File system operations (create, read, delete, info, list, move, stream, exec)
+- **`edit`** - File editing operations (edit sentence, undo)
+- **`folder`** - Folder management (create, view)
+- **`version`** - Version control (create checkpoint, view, revert, list)
+- **`access`** - Access control (grant, revoke, request, approve, deny)
+- **`user`** - User operations (list)
+
+For a complete command reference, see [COMMAND_GUIDE.md](documentation/COMMAND_GUIDE.md).
+
 ## Usage Examples
 
-### Viewing Files
+### File System Operations
 
 ```
-VIEW              # List your accessible files
-VIEW -a           # List all files in the system
-VIEW -l           # List with details (words, chars, owner, etc.)
-VIEW -al          # List all files with details
+file list              # List your accessible files
+file list -a           # List all files in the system
+file list -l           # List with details (words, chars, owner, etc.)
+file list -al          # List all files with details
+
+file create test.txt   # Create a new file
+file read test.txt     # Read file content
+file delete test.txt   # Delete file (owner only)
+file info test.txt     # Get file metadata
+file stream test.txt   # Stream content word-by-word
+file exec script.sh    # Execute file as shell script
 ```
 
-### Creating and Managing Files
+### Editing Files
 
 ```
-CREATE test.txt                    # Create a new file
-READ test.txt                      # Read file content
-DELETE test.txt                    # Delete file (owner only)
-INFO test.txt                      # Get file metadata
+edit test.txt 0      # Start editing sentence 0
+1 Hello              # Insert "Hello" at word index 1
+3 world!             # Insert "world!" at word index 3
+ETIRW                # Finish editing (unlocks sentence)
+
+edit undo test.txt   # Undo last change
 ```
 
-### Writing to Files
+### Folder Management
 
 ```
-WRITE test.txt 0                   # Start writing to sentence 0
-1 Hello                            # Insert "Hello" at word index 1
-3 world!                           # Insert "world!" at word index 3
-ETIRW                              # Finish writing (unlocks sentence)
+folder create docs        # Create a new folder
+folder view /docs         # List folder contents
+file move test.txt /docs    # Move file to folder
+```
+
+### Version Control
+
+```
+version create test.txt v1.0    # Create checkpoint
+version list test.txt           # List all checkpoints
+version view test.txt v1.0      # View checkpoint content
+version revert test.txt v1.0    # Revert to checkpoint
 ```
 
 ### Access Control
 
 ```
-ADDACCESS -R test.txt user2        # Give user2 read access
-ADDACCESS -W test.txt user3        # Give user3 write access
-REMACCESS test.txt user2           # Remove user2's access
+access grant test.txt user2 -R     # Give user2 read access
+access grant test.txt user3 -W     # Give user3 write access
+access revoke test.txt user2       # Remove user2's access
+
+access request shared.txt -R       # Request read access to file
+access requests myfile.txt         # View pending requests (owner)
+access approve myfile.txt user2    # Approve request (owner)
+access deny myfile.txt user3       # Deny request (owner)
 ```
 
-### Other Operations
+### User Management
 
 ```
-UNDO test.txt                      # Undo last change
-STREAM test.txt                    # Stream content word-by-word
-EXEC script.sh                     # Execute file as shell script
-LIST                               # List all users
+user list            # List all registered users
 ```
 
 ## Project Structure
@@ -251,7 +288,6 @@ The system has been tested with:
 1. Name Server failure brings down the entire system (as specified)
 2. Single-level undo (only last operation)
 3. No automatic failover for storage servers
-4. No folder hierarchy (bonus feature not implemented)
 
 ## Error Codes Reference
 
@@ -274,13 +310,12 @@ The system has been tested with:
 
 ## Future Enhancements
 
-Potential bonus features that could be added:
-- Hierarchical folder structure
-- Checkpointing system
-- Request access mechanism
+Potential improvements that could be added:
 - Fault tolerance with replication
 - Multiple undo levels
 - Real-time notifications
+- Batch operations
+- File compression
 
 ## Contributors
 

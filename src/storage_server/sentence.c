@@ -779,12 +779,184 @@ int ss_stream_file(int client_socket, const char* filename) {
 }
 
 /**
+ * send_simple_response
+ * @brief Helper to send a simple response with no payload.
+ *
+ * Reduces repetitive header initialization and send patterns.
+ *
+ * @param client_fd Client socket fd.
+ * @param msg_type MSG_ACK, MSG_ERROR, etc.
+ * @param error_code Error code to include in the response.
+ */
+void send_simple_response(int client_fd, int msg_type, int error_code) {
+    MessageHeader resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.msg_type = msg_type;
+    resp.error_code = error_code;
+    resp.data_length = 0;
+    send_message(client_fd, &resp, NULL);
+}
+
+/**
+ * handle_ss_create
+ * @brief Handler for OP_SS_CREATE operation.
+ */
+void handle_ss_create(int client_fd, MessageHeader* header, const char* payload) {
+    // Construct full path from foldername and filename
+    char fullpath[MAX_PATH];
+    if (header->foldername[0]) {
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", 
+                 header->foldername, header->filename);
+    } else {
+        strncpy(fullpath, header->filename, sizeof(fullpath) - 1);
+        fullpath[sizeof(fullpath) - 1] = '\0';
+    }
+    
+    int result = ss_create_file(fullpath, payload ? payload : "unknown");
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_delete
+ * @brief Handler for OP_SS_DELETE operation.
+ */
+void handle_ss_delete(int client_fd, MessageHeader* header) {
+    int result = ss_delete_file(header->filename);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_read
+ * @brief Handler for OP_SS_READ operation.
+ */
+void handle_ss_read(int client_fd, MessageHeader* header) {
+    char* content = NULL;
+    int result = ss_read_file(header->filename, &content);
+    
+    if (result == ERR_SUCCESS) {
+        MessageHeader resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.msg_type = MSG_RESPONSE;
+        resp.error_code = ERR_SUCCESS;
+        resp.data_length = strlen(content);
+        send_message(client_fd, &resp, content);
+        free(content);
+    } else {
+        send_simple_response(client_fd, MSG_ERROR, result);
+    }
+}
+
+/**
+ * handle_ss_write_lock
+ * @brief Handler for OP_SS_WRITE_LOCK operation.
+ */
+void handle_ss_write_lock(int client_fd, MessageHeader* header) {
+    int result = ss_write_lock(header->filename, header->sentence_index, header->username);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_write_word
+ * @brief Handler for OP_SS_WRITE_WORD operation.
+ *
+ * Parses payload format: "word_index <new_word...>" and updates the word.
+ */
+void handle_ss_write_word(int client_fd, MessageHeader* header, const char* payload) {
+    if (!payload) {
+        send_simple_response(client_fd, MSG_ERROR, ERR_INVALID_WORD);
+        return;
+    }
+
+    char* space_ptr = strchr(payload, ' ');
+    if (!space_ptr) {
+        send_simple_response(client_fd, MSG_ERROR, ERR_INVALID_WORD);
+        return;
+    }
+
+    int word_idx = atoi(payload);
+    space_ptr++; // move to start of new_word
+    while (*space_ptr == ' ' || *space_ptr == '\t') space_ptr++;
+
+    // Trim trailing newline/carriage return
+    char* endp = space_ptr + strlen(space_ptr) - 1;
+    while (endp >= space_ptr && (*endp == '\n' || *endp == '\r')) {
+        *endp = '\0';
+        endp--;
+    }
+
+    char* new_word = strdup(space_ptr);
+    if (!new_word) {
+        send_simple_response(client_fd, MSG_ERROR, ERR_FILE_OPERATION_FAILED);
+        return;
+    }
+
+    int result = ss_write_word(header->filename, header->sentence_index,
+                               word_idx, new_word, header->username);
+    free(new_word);
+
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_write_unlock
+ * @brief Handler for OP_SS_WRITE_UNLOCK operation.
+ */
+void handle_ss_write_unlock(int client_fd, MessageHeader* header) {
+    int result = ss_write_unlock(header->filename, header->sentence_index, header->username);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_info
+ * @brief Handler for OP_INFO operation.
+ */
+void handle_ss_info(int client_fd, MessageHeader* header) {
+    long size;
+    int words, chars;
+    int result = ss_get_file_info(header->filename, &size, &words, &chars);
+    
+    if (result == ERR_SUCCESS) {
+        char info[256];
+        snprintf(info, sizeof(info), "Size:%ld Words:%d Chars:%d", 
+                size, words, chars);
+        
+        MessageHeader resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.msg_type = MSG_RESPONSE;
+        resp.data_length = strlen(info);
+        send_message(client_fd, &resp, info);
+    } else {
+        send_simple_response(client_fd, MSG_ERROR, result);
+    }
+}
+
+/**
+ * handle_ss_undo
+ * @brief Handler for OP_UNDO operation.
+ */
+void handle_ss_undo(int client_fd, MessageHeader* header) {
+    int result = ss_undo_file(header->filename);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
  * handle_client_request
  * @brief Thread entrypoint for per-client connections to the Storage Server.
  *
- * Receives one request header+payload, executes the corresponding SS_* API
- * call, and sends back an acknowledgement, error, or response. The thread
- * then closes the connection and exits.
+ * Receives requests and dispatches them to individual handler functions.
+ * Maintains connection for WRITE sessions (LOCK -> WORD edits -> UNLOCK).
  *
  * @param arg Pointer to an allocated int containing the accepted socket fd.
  * @return Always returns NULL when the thread exits.
@@ -799,281 +971,61 @@ void* handle_client_request(void* arg) {
     
     // Handle multiple requests on same connection
     while (keep_alive && recv_message(client_fd, &header, &payload) > 0) {
-        char* response_payload = NULL;
-        
         switch (header.op_code) {
-            case OP_SS_CREATE: {
-                // payload contains owner username
-                // Construct full path from foldername and filename
-                char fullpath[MAX_PATH];
-                if (header.foldername[0]) {
-                    snprintf(fullpath, sizeof(fullpath), "%s/%s", 
-                             header.foldername, header.filename);
-                } else {
-                    strncpy(fullpath, header.filename, sizeof(fullpath) - 1);
-                    fullpath[sizeof(fullpath) - 1] = '\0';
-                }
-                
-                int result = ss_create_file(fullpath, payload ? payload : "unknown");
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
+            case OP_SS_CREATE:
+                handle_ss_create(client_fd, &header, payload);
+                keep_alive = 0;  // Single-shot operation
                 break;
-            }
             
-            case OP_SS_DELETE: {
-                int result = ss_delete_file(header.filename);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
+            case OP_SS_DELETE:
+                handle_ss_delete(client_fd, &header);
+                keep_alive = 0;
                 break;
-            }
             
-            case OP_SS_READ: {
-                char* content;
-                int result = ss_read_file(header.filename, &content);
-                if (result == ERR_SUCCESS) {
-                    header.msg_type = MSG_RESPONSE;
-                    header.data_length = strlen(content);
-                    header.error_code = ERR_SUCCESS;
-                    send_message(client_fd, &header, content);
-                    free(content);
-                } else {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = result;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                }
+            case OP_SS_READ:
+                handle_ss_read(client_fd, &header);
+                keep_alive = 0;
                 break;
-            }
             
-            case OP_SS_WRITE_LOCK: {
-                int result = ss_write_lock(header.filename, header.sentence_index, header.username);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
+            case OP_SS_WRITE_LOCK:
+                handle_ss_write_lock(client_fd, &header);
                 // Keep connection alive for subsequent WRITE_WORD commands
-                // keep_alive = 1 (already set)
                 break;
-            }
             
-            case OP_SS_WRITE_WORD: {
-                // Payload format: "word_index <new_word...>" - capture rest of line
-                if (!payload) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_INVALID_WORD;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                    break;
-                }
-
-                char* space_ptr = strchr(payload, ' ');
-                if (!space_ptr) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_INVALID_WORD;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                    break;
-                }
-
-                int word_idx = atoi(payload);
-                space_ptr++; // move to start of new_word
-                while (*space_ptr == ' ' || *space_ptr == '\t') space_ptr++;
-
-                // Trim trailing newline/carriage return
-                char* endp = space_ptr + strlen(space_ptr) - 1;
-                while (endp >= space_ptr && (*endp == '\n' || *endp == '\r')) {
-                    *endp = '\0';
-                    endp--;
-                }
-
-                char* new_word = strdup(space_ptr);
-                if (!new_word) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_FILE_OPERATION_FAILED;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                    break;
-                }
-
-                int result = ss_write_word(header.filename, header.sentence_index,
-                                           word_idx, new_word, header.username);
-                free(new_word);
-
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
+            case OP_SS_WRITE_WORD:
+                handle_ss_write_word(client_fd, &header, payload);
                 // Keep connection alive for more WRITE_WORD or WRITE_UNLOCK
                 break;
-            }
             
-            case OP_SS_WRITE_UNLOCK: {
-                int result = ss_write_unlock(header.filename, header.sentence_index, header.username);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
-                // WRITE session complete - close connection
-                keep_alive = 0;
+            case OP_SS_WRITE_UNLOCK:
+                handle_ss_write_unlock(client_fd, &header);
+                keep_alive = 0;  // End of WRITE session
                 break;
-            }
             
-            case OP_STREAM: {
+            case OP_STREAM:
                 ss_stream_file(client_fd, header.filename);
-                break;
-            }
-            
-            case OP_INFO: {
-                long size;
-                int words, chars;
-                int result = ss_get_file_info(header.filename, &size, &words, &chars);
-                if (result == ERR_SUCCESS) {
-                    char info[256];
-                    snprintf(info, sizeof(info), "Size:%ld Words:%d Chars:%d", 
-                            size, words, chars);
-                    header.msg_type = MSG_RESPONSE;
-                    header.data_length = strlen(info);
-                    send_message(client_fd, &header, info);
-                } else {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = result;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                }
-                break;
-            }
-            
-            case OP_UNDO: {
-                int result = ss_undo_file(header.filename);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
-                keep_alive = 0;  // Close after single-shot operations
-                break;
-            }
-            
-            case OP_SS_MOVE: {
-                // Payload contains new filename
-                if (!payload) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_FILE_OPERATION_FAILED;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                    break;
-                }
-                
-                int result = ss_move_file(header.filename, payload);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
-                keep_alive = 0;  // Close after single-shot operations
-                break;
-            }
-            
-            case OP_SS_CHECKPOINT: {
-                // Create checkpoint with tag from header
-                int result = ss_create_checkpoint(header.filename, header.checkpoint_tag);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
-                
-                if (result == ERR_SUCCESS) {
-                    char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "Checkpoint created: %s [%s]", 
-                             header.filename, header.checkpoint_tag);
-                    log_message("SS", "INFO", msg);
-                }
                 keep_alive = 0;
                 break;
-            }
             
-            case OP_SS_VIEWCHECKPOINT: {
-                // View checkpoint content
-                char* checkpoint_content = NULL;
-                int result = ss_view_checkpoint(header.filename, header.checkpoint_tag, &checkpoint_content);
-                
-                if (result == ERR_SUCCESS && checkpoint_content) {
-                    header.msg_type = MSG_RESPONSE;
-                    header.error_code = ERR_SUCCESS;
-                    header.data_length = strlen(checkpoint_content);
-                    send_message(client_fd, &header, checkpoint_content);
-                    free(checkpoint_content);
-                } else {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = result;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                }
+            case OP_INFO:
+                handle_ss_info(client_fd, &header);
                 keep_alive = 0;
                 break;
-            }
             
-            case OP_SS_REVERT: {
-                // Revert to checkpoint
-                int result = ss_revert_checkpoint(header.filename, header.checkpoint_tag);
-                header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
-                header.error_code = result;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
-                
-                if (result == ERR_SUCCESS) {
-                    char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "Reverted to checkpoint: %s [%s]", 
-                             header.filename, header.checkpoint_tag);
-                    log_message("SS", "INFO", msg);
-                }
+            case OP_UNDO:
+                handle_ss_undo(client_fd, &header);
                 keep_alive = 0;
                 break;
-            }
             
-            case OP_SS_LISTCHECKPOINTS: {
-                // List all checkpoints for file
-                char* checkpoint_list = NULL;
-                int result = ss_list_checkpoints(header.filename, &checkpoint_list);
-                
-                if (result == ERR_SUCCESS && checkpoint_list) {
-                    header.msg_type = MSG_RESPONSE;
-                    header.error_code = ERR_SUCCESS;
-                    header.data_length = strlen(checkpoint_list);
-                    send_message(client_fd, &header, checkpoint_list);
-                    free(checkpoint_list);
-                } else {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = result;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
-                }
-                keep_alive = 0;
-                break;
-            }
-            
-            default: {
+            default:
                 // Unknown operation - close connection
                 keep_alive = 0;
                 break;
-            }
         }
         
         if (payload) {
             free(payload);
             payload = NULL;
-        }
-        if (response_payload) {
-            free(response_payload);
-            response_payload = NULL;
-        }
-        
-        // Close connection for all non-WRITE operations
-        if (header.op_code != OP_SS_WRITE_LOCK && 
-            header.op_code != OP_SS_WRITE_WORD) {
-            keep_alive = 0;
         }
     }
     

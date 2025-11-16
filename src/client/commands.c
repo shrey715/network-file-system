@@ -2,6 +2,83 @@
 #include "client.h"
 
 /**
+ * send_nm_request_and_get_response
+ * @brief Helper to send a request to NM and receive response.
+ *
+ * This eliminates the repetitive pattern of send + recv + error checking.
+ *
+ * @param state Client state (for nm_socket).
+ * @param header Initialized request header to send.
+ * @param payload Optional payload to send (may be NULL).
+ * @param response_out Out parameter for response payload (caller must free).
+ * @return ERR_SUCCESS if response received, or error code.
+ */
+int send_nm_request_and_get_response(ClientState* state, MessageHeader* header, const char* payload, char** response_out) {
+    if (send_message(state->nm_socket, header, payload) < 0) {
+        return ERR_NETWORK_ERROR;
+    }
+    
+    if (recv_message(state->nm_socket, header, response_out) < 0) {
+        return ERR_NETWORK_ERROR;
+    }
+    
+    return ERR_SUCCESS;
+}
+
+/**
+ * get_storage_server_connection
+ * @brief Query NM for storage server info and establish connection.
+ *
+ * This helper encapsulates the common pattern:
+ *  1. Ask NM which storage server handles the file
+ *  2. Parse the "IP:port" response
+ *  3. Connect to that storage server
+ *
+ * @param state Client state.
+ * @param filename Target filename.
+ * @param op_code Operation code for the NM request (OP_READ, OP_WRITE, etc.).
+ * @param ss_socket_out Out parameter: connected socket to storage server.
+ * @return ERR_SUCCESS on success, or error code on failure.
+ */
+int get_storage_server_connection(ClientState* state, const char* filename, int op_code, int* ss_socket_out) {
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, op_code, state->username);
+    strcpy(header.filename, filename);
+    
+    char* ss_info = NULL;
+    if (send_nm_request_and_get_response(state, &header, NULL, &ss_info) != ERR_SUCCESS) {
+        if (ss_info) free(ss_info);
+        return ERR_NETWORK_ERROR;
+    }
+    
+    if (header.msg_type != MSG_RESPONSE) {
+        printf("Error: %s\n", get_error_message(header.error_code));
+        if (ss_info) free(ss_info);
+        return header.error_code;
+    }
+    
+    // Parse SS IP and port
+    char ss_ip[MAX_IP];
+    int ss_port;
+    if (parse_ss_info(ss_info, ss_ip, &ss_port) != 0) {
+        printf("Error: Invalid storage server info\n");
+        free(ss_info);
+        return ERR_NETWORK_ERROR;
+    }
+    free(ss_info);
+    
+    // Connect to SS
+    int ss_socket = connect_to_server(ss_ip, ss_port);
+    if (ss_socket < 0) {
+        printf("Error: Failed to connect to storage server\n");
+        return ERR_SS_UNAVAILABLE;
+    }
+    
+    *ss_socket_out = ss_socket;
+    return ERR_SUCCESS;
+}
+
+/**
  * execute_view
  * @brief Send a VIEW request to the Name Server and print the response.
  *
@@ -13,24 +90,22 @@
  */
 int execute_view(ClientState* state, int flags) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_VIEW;
-    strcpy(header.username, state->username);
+    init_message_header(&header, MSG_REQUEST, OP_VIEW, state->username);
     header.flags = flags;
-    header.data_length = 0;
     
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
         if (flags & 2) {  // -l flag
             printf("%-20s %5s %5s %16s %s\n", "Filename", "Words", "Chars", "Last Access", "Owner");
             printf("------------------------------------------------------------\n");
         }
-        printf("%s", response);
+        if (response && strlen(response) > 0) {
+            printf("%s", response);
+        } else {
+            printf("(No files to display)\n");
+        }
     } else {
         printf("Error: %s\n", get_error_message(header.error_code));
     }
@@ -43,62 +118,30 @@ int execute_view(ClientState* state, int flags) {
  * execute_read
  * @brief Request the storage server location from NM then fetch file content.
  *
- * Steps:
- *  1. Ask NM for the storage server holding `filename`.
- *  2. Connect to the storage server and request the file content.
- *  3. Print file contents or an error message.
+ * Uses helper function to establish connection to appropriate storage server,
+ * then requests and displays the file content.
  *
  * @param state Client state pointer.
  * @param filename Name of the file to read.
  * @return ERR_SUCCESS on success or an ERR_* code on failure.
  */
 int execute_read(ClientState* state, const char* filename) {
-    // Request SS info from NM
-    MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_READ;
-    strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
-    header.data_length = 0;
-    
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* ss_info;
-    recv_message(state->nm_socket, &header, &ss_info);
-    
-    if (header.msg_type != MSG_RESPONSE) {
-        printf("Error: %s\n", get_error_message(header.error_code));
-        if (ss_info) free(ss_info);
-        return header.error_code;
-    }
-    
-    // Parse SS IP and port
-    char ss_ip[MAX_IP];
-    int ss_port;
-    sscanf(ss_info, "%[^:]:%d", ss_ip, &ss_port);
-    free(ss_info);
-    
-    // Connect to SS
-    int ss_socket = connect_to_server(ss_ip, ss_port);
-    if (ss_socket < 0) {
-        printf("Error: Failed to connect to storage server\n");
-        return ERR_SS_UNAVAILABLE;
+    int ss_socket;
+    int result = get_storage_server_connection(state, filename, OP_READ, &ss_socket);
+    if (result != ERR_SUCCESS) {
+        return result;
     }
     
     // Request file content from SS
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_SS_READ;
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_SS_READ, state->username);
     strcpy(header.filename, filename);
-    strcpy(header.username, state->username);
-    header.data_length = 0;
     
     send_message(ss_socket, &header, NULL);
     
     char* content = NULL;
     recv_message(ss_socket, &header, &content);
-    close(ss_socket);
+    safe_close_socket(&ss_socket);
     
     if (header.msg_type == MSG_RESPONSE) {
         if (content) {
@@ -165,9 +208,8 @@ int execute_create(ClientState* state, const char* filename) {
  * execute_write
  * @brief Perform a sentence-level write session against a storage server.
  *
- * The client requests storage server info from NM, obtains a lock on the
- * requested sentence, then accepts interactive word-replacement commands from
- * stdin until the user types ETIRW to finish and release the lock.
+ * Uses helper to connect to storage server, locks the requested sentence,
+ * then accepts interactive word-replacement commands until ETIRW.
  *
  * @param state Client state pointer.
  * @param filename Target filename.
@@ -175,51 +217,17 @@ int execute_create(ClientState* state, const char* filename) {
  * @return ERR_SUCCESS on success or an ERR_* code on failure.
  */
 int execute_write(ClientState* state, const char* filename, int sentence_idx) {
-    // Request SS info from NM
-    MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_WRITE;
-    strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
-    header.data_length = 0;
-    
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* ss_info = NULL;
-    recv_message(state->nm_socket, &header, &ss_info);
-    
-    if (header.msg_type != MSG_RESPONSE) {
-        printf("Error: %s\n", get_error_message(header.error_code));
-        if (ss_info) free(ss_info);
-        return header.error_code;
-    }
-    
-    // Parse SS IP and port
-    char ss_ip[MAX_IP];
-    int ss_port;
-    if (sscanf(ss_info, "%[^:]:%d", ss_ip, &ss_port) != 2) {
-        printf("Error: Invalid storage server info\n");
-        free(ss_info);
-        return ERR_NETWORK_ERROR;
-    }
-    free(ss_info);
-    
-    // Connect to SS
-    int ss_socket = connect_to_server(ss_ip, ss_port);
-    if (ss_socket < 0) {
-        printf("Error: Failed to connect to storage server\n");
-        return ERR_SS_UNAVAILABLE;
+    int ss_socket;
+    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket);
+    if (result != ERR_SUCCESS) {
+        return result;
     }
     
     // Lock sentence
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_SS_WRITE_LOCK;
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_LOCK, state->username);
     strcpy(header.filename, filename);
-    strcpy(header.username, state->username);
     header.sentence_index = sentence_idx;
-    header.data_length = 0;
     
     send_message(ss_socket, &header, NULL);
     
@@ -229,7 +237,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
     
     if (header.msg_type != MSG_ACK) {
         printf("Error: %s\n", get_error_message(header.error_code));
-        close(ss_socket);
+        safe_close_socket(&ss_socket);
         return header.error_code;
     }
     
@@ -382,7 +390,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         free(line);
     }
     
-    close(ss_socket);
+    safe_close_socket(&ss_socket);
     return success ? ERR_SUCCESS : ERR_FILE_OPERATION_FAILED;
 }
 
@@ -390,57 +398,29 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
  * execute_undo
  * @brief Request the storage server to restore the last undo snapshot.
  *
+ * Uses helper to connect to storage server, then requests undo operation.
+ *
  * @param state Client state pointer.
  * @param filename Target filename.
  * @return Error code returned by the storage server.
  */
 int execute_undo(ClientState* state, const char* filename) {
-    // Request SS info from NM
-    MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_UNDO;
-    strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
-    header.data_length = 0;
-    
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* ss_info;
-    recv_message(state->nm_socket, &header, &ss_info);
-    
-    if (header.msg_type != MSG_RESPONSE) {
-        printf("Error: %s\n", get_error_message(header.error_code));
-        if (ss_info) free(ss_info);
-        return header.error_code;
-    }
-    
-    // Parse SS IP and port
-    char ss_ip[MAX_IP];
-    int ss_port;
-    sscanf(ss_info, "%[^:]:%d", ss_ip, &ss_port);
-    free(ss_info);
-    
-    // Connect to SS
-    int ss_socket = connect_to_server(ss_ip, ss_port);
-    if (ss_socket < 0) {
-        printf("Error: Failed to connect to storage server\n");
-        return ERR_SS_UNAVAILABLE;
+    int ss_socket;
+    int result = get_storage_server_connection(state, filename, OP_UNDO, &ss_socket);
+    if (result != ERR_SUCCESS) {
+        return result;
     }
     
     // Request undo
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_UNDO;
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_UNDO, state->username);
     strcpy(header.filename, filename);
-    strcpy(header.username, state->username);
-    header.data_length = 0;
     
     send_message(ss_socket, &header, NULL);
     
-    char* response;
+    char* response = NULL;
     recv_message(ss_socket, &header, &response);
-    close(ss_socket);
+    safe_close_socket(&ss_socket);
     
     if (header.msg_type == MSG_ACK) {
         printf("Undo successful!\n");
@@ -462,17 +442,11 @@ int execute_undo(ClientState* state, const char* filename) {
  */
 int execute_info(ClientState* state, const char* filename) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_INFO;
-    strcpy(header.username, state->username);
+    init_message_header(&header, MSG_REQUEST, OP_INFO, state->username);
     strcpy(header.filename, filename);
-    header.data_length = 0;
     
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);
@@ -495,17 +469,11 @@ int execute_info(ClientState* state, const char* filename) {
  */
 int execute_delete(ClientState* state, const char* filename) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_DELETE;
-    strcpy(header.username, state->username);
+    init_message_header(&header, MSG_REQUEST, OP_DELETE, state->username);
     strcpy(header.filename, filename);
-    header.data_length = 0;
     
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_ACK) {
         printf("File '%s' deleted successfully!\n", filename);
@@ -522,57 +490,30 @@ int execute_delete(ClientState* state, const char* filename) {
  * @brief Stream file contents word-by-word from the storage server and
  *        print them as they arrive.
  *
+ * Uses helper to connect to storage server, then receives and prints
+ * words until MSG_STOP.
+ *
  * @param state Client state pointer.
  * @param filename Filename to stream.
  * @return ERR_SUCCESS on success or an ERR_* code on failure.
  */
 int execute_stream(ClientState* state, const char* filename) {
-    // Request SS info from NM
-    MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_STREAM;
-    strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
-    header.data_length = 0;
-    
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* ss_info;
-    recv_message(state->nm_socket, &header, &ss_info);
-    
-    if (header.msg_type != MSG_RESPONSE) {
-        printf("Error: %s\n", get_error_message(header.error_code));
-        if (ss_info) free(ss_info);
-        return header.error_code;
-    }
-    
-    // Parse SS IP and port
-    char ss_ip[MAX_IP];
-    int ss_port;
-    sscanf(ss_info, "%[^:]:%d", ss_ip, &ss_port);
-    free(ss_info);
-    
-    // Connect to SS
-    int ss_socket = connect_to_server(ss_ip, ss_port);
-    if (ss_socket < 0) {
-        printf("Error: Failed to connect to storage server\n");
-        return ERR_SS_UNAVAILABLE;
+    int ss_socket;
+    int result = get_storage_server_connection(state, filename, OP_STREAM, &ss_socket);
+    if (result != ERR_SUCCESS) {
+        return result;
     }
     
     // Request stream
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_STREAM;
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_STREAM, state->username);
     strcpy(header.filename, filename);
-    strcpy(header.username, state->username);
-    header.data_length = 0;
     
     send_message(ss_socket, &header, NULL);
     
     // Receive and print words
     while (1) {
-        char* word;
+        char* word = NULL;
         recv_message(ss_socket, &header, &word);
         
         if (header.msg_type == MSG_STOP) {
@@ -583,7 +524,7 @@ int execute_stream(ClientState* state, const char* filename) {
         if (header.msg_type == MSG_ERROR) {
             printf("\nError: %s\n", get_error_message(header.error_code));
             if (word) free(word);
-            close(ss_socket);
+            safe_close_socket(&ss_socket);
             return header.error_code;
         }
         
@@ -598,7 +539,7 @@ int execute_stream(ClientState* state, const char* filename) {
     }
     
     printf("\n");
-    close(ss_socket);
+    safe_close_socket(&ss_socket);
     return ERR_SUCCESS;
 }
 
@@ -611,16 +552,10 @@ int execute_stream(ClientState* state, const char* filename) {
  */
 int execute_list(ClientState* state) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_LIST;
-    strcpy(header.username, state->username);
-    header.data_length = 0;
+    init_message_header(&header, MSG_REQUEST, OP_LIST, state->username);
     
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
         printf("Users:\n%s", response);
@@ -646,20 +581,15 @@ int execute_list(ClientState* state) {
 int execute_addaccess(ClientState* state, const char* filename, const char* username, 
                      int read, int write) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_ADDACCESS;
-    strcpy(header.username, state->username);
+    init_message_header(&header, MSG_REQUEST, OP_ADDACCESS, state->username);
     strcpy(header.filename, filename);
     
     char payload[BUFFER_SIZE];
     snprintf(payload, sizeof(payload), "%s %d %d", username, read, write);
     header.data_length = strlen(payload);
     
-    send_message(state->nm_socket, &header, payload);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, payload, &response);
     
     if (header.msg_type == MSG_ACK) {
         printf("Access granted successfully!\n");
@@ -684,17 +614,12 @@ int execute_addaccess(ClientState* state, const char* filename, const char* user
  */
 int execute_remaccess(ClientState* state, const char* filename, const char* username) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_REMACCESS;
-    strcpy(header.username, state->username);
+    init_message_header(&header, MSG_REQUEST, OP_REMACCESS, state->username);
     strcpy(header.filename, filename);
     header.data_length = strlen(username);
     
-    send_message(state->nm_socket, &header, username);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, username, &response);
     
     if (header.msg_type == MSG_ACK) {
         printf("Access removed successfully!\n");
@@ -719,17 +644,11 @@ int execute_remaccess(ClientState* state, const char* filename, const char* user
  */
 int execute_exec(ClientState* state, const char* filename) {
     MessageHeader header;
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_EXEC;
-    strcpy(header.username, state->username);
+    init_message_header(&header, MSG_REQUEST, OP_EXEC, state->username);
     strcpy(header.filename, filename);
-    header.data_length = 0;
     
-    send_message(state->nm_socket, &header, NULL);
-    
-    char* response;
-    recv_message(state->nm_socket, &header, &response);
+    char* response = NULL;
+    send_nm_request_and_get_response(state, &header, NULL, &response);
     
     if (header.msg_type == MSG_RESPONSE) {
         printf("%s", response);

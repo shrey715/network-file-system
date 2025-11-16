@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <pthread.h>
 
 // ============ CONSTANTS ============
 #define MAX_FILENAME 256
@@ -133,6 +134,11 @@ int send_message(int sockfd, MessageHeader* header, const char* payload);
 int recv_message(int sockfd, MessageHeader* header, char** payload);
 int create_server_socket(int port);
 int connect_to_server(const char* ip, int port);
+
+// ============ MESSAGE HELPERS ============
+void init_message_header(MessageHeader* header, int msg_type, int op_code, const char* username);
+int parse_ss_info(const char* ss_info, char* ip_out, int* port_out);
+void safe_close_socket(int* sockfd);
 
 // ============ LOGGING FUNCTIONS ============
 void log_message(const char* component, const char* level, const char* message);

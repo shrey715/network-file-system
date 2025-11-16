@@ -25,6 +25,10 @@ int execute_list(ClientState* state);
 int execute_addaccess(ClientState* state, const char* filename, const char* username, int read, int write);
 int execute_remaccess(ClientState* state, const char* filename, const char* username);
 int execute_exec(ClientState* state, const char* filename);
+
+// ============ HELPER FUNCTIONS ============
+int get_storage_server_connection(ClientState* state, const char* filename, int op_code, int* ss_socket_out);
+int send_nm_request_and_get_response(ClientState* state, MessageHeader* header, const char* payload, char** response_out);
 int execute_createfolder(ClientState* state, const char* foldername);
 int execute_move(ClientState* state, const char* filename, const char* foldername);
 int execute_viewfolder(ClientState* state, const char* foldername);
@@ -38,6 +42,7 @@ int execute_approverequest(ClientState* state, const char* filename, const char*
 int execute_denyrequest(ClientState* state, const char* filename, const char* username);
 
 // ============ PARSER FUNCTIONS ============
-int parse_command(const char* input, char* command, char* arg1, char* arg2, int* flags);
+int parse_command(const char* input, char* command, char* subcommand, 
+                  char* arg1, char* arg2, int* flags);
 
 #endif // CLIENT_H

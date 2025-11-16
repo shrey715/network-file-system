@@ -71,7 +71,7 @@ int main(int argc, char* argv[]) {
         if (strlen(input) == 0) continue;
         
         // Parse command
-        char command[64], arg1[MAX_FILENAME], arg2[MAX_USERNAME];
+        char command[64], subcommand[64], arg1[MAX_FILENAME], arg2[MAX_USERNAME];
         int flags = 0;
         
         if (strcmp(input, "quit") == 0 || strcmp(input, "exit") == 0) {
@@ -79,124 +79,150 @@ int main(int argc, char* argv[]) {
         }
         
         if (strcmp(input, "help") == 0) {
-            printf("Available commands:\n");
-            printf("  VIEW [-a] [-l] [-al]    - List files\n");
-            printf("  READ <filename>         - Read file content\n");
-            printf("  CREATE <filename>       - Create new file\n");
-            printf("  WRITE <filename> <idx>  - Write to sentence at index\n");
-            printf("  UNDO <filename>         - Undo last change\n");
-            printf("  INFO <filename>         - Get file information\n");
-            printf("  DELETE <filename>       - Delete file\n");
-            printf("  STREAM <filename>       - Stream file content\n");
-            printf("  LIST                    - List all users\n");
-            printf("  ADDACCESS -R <file> <user> - Add read access\n");
-            printf("  ADDACCESS -W <file> <user> - Add write access\n");
-            printf("  REMACCESS <file> <user>    - Remove access\n");
-            printf("  EXEC <filename>         - Execute file as commands\n");
-            printf("  CREATEFOLDER <name>     - Create a new folder\n");
-            printf("  MOVE <file> <folder>    - Move file to folder\n");
-            printf("  VIEWFOLDER [folder]     - List folder contents (root if empty)\n");
-            printf("  CHECKPOINT <file> <tag> - Create a checkpoint with given tag\n");
-            printf("  VIEWCHECKPOINT <file> <tag> - View checkpoint content\n");
-            printf("  REVERT <file> <tag>     - Revert file to checkpoint\n");
-            printf("  LISTCHECKPOINTS <file>  - List all checkpoints for file\n");
-            printf("  REQUESTACCESS [-R] [-W] <file> - Request access (default: read only)\n");
-            printf("  VIEWREQUESTS <file>     - View pending access requests (owner only)\n");
-            printf("  APPROVEREQUEST <file> <user> - Approve access request (owner only)\n");
-            printf("  DENYREQUEST <file> <user>    - Deny access request (owner only)\n");
-            printf("  quit/exit               - Exit client\n");
+            printf("\nAvailable commands:\n");
+            printf("\nFile System:\n");
+            printf("  file create <filename>         - Create new file\n");
+            printf("  file delete <filename>         - Delete file\n");
+            printf("  file read <filename>           - Read file content\n");
+            printf("  file info <filename>           - Get file information\n");
+            printf("  file list [-a] [-l]            - List files\n");
+            printf("  file move <file> <folder>      - Move file to folder\n");
+            printf("  file stream <filename>         - Stream file content\n");
+            printf("  file exec <filename>           - Execute file as commands\n");
+            
+            printf("\nEdit System:\n");
+            printf("  edit <filename> <idx>        - Edit sentence at index\n");
+            printf("  edit undo <filename>         - Undo last change\n");
+            
+            printf("\nFolder System:\n");
+            printf("  folder create <name>         - Create new folder\n");
+            printf("  folder view [path]           - List folder contents\n");
+            
+            printf("\nVersion Control:\n");
+            printf("  version create <file> <tag>  - Create checkpoint\n");
+            printf("  version view <file> <tag>    - View checkpoint content\n");
+            printf("  version revert <file> <tag>  - Revert to checkpoint\n");
+            printf("  version list <file>          - List all checkpoints\n");
+            
+            printf("\nAccess Control:\n");
+            printf("  access grant <file> <user> [-R|-W]  - Grant access\n");
+            printf("  access revoke <file> <user>          - Revoke access\n");
+            printf("  access request <file> [-R] [-W]     - Request access\n");
+            printf("  access requests <file>               - View requests (owner)\n");
+            printf("  access approve <file> <user>         - Approve request (owner)\n");
+            printf("  access deny <file> <user>            - Deny request (owner)\n");
+            
+            printf("\nUser System:\n");
+            printf("  user list                    - List all users\n");
+            printf("\nquit/exit - Exit client\n\n");
             continue;
         }
         
-        int result = parse_command(input, command, arg1, arg2, &flags);
+        int result = parse_command(input, command, subcommand, arg1, arg2, &flags);
         if (result < 0) {
             printf("Error: Invalid command format\n");
             continue;
         }
         
-        // Execute command
-        if (strcmp(command, "VIEW") == 0) {
-            execute_view(&client_state, flags);
-        } else if (strcmp(command, "READ") == 0) {
-            execute_read(&client_state, arg1);
-        } else if (strcmp(command, "CREATE") == 0) {
-            execute_create(&client_state, arg1);
-        } else if (strcmp(command, "WRITE") == 0) {
-            int sentence_idx = atoi(arg2);
-            execute_write(&client_state, arg1, sentence_idx);
-        } else if (strcmp(command, "UNDO") == 0) {
-            execute_undo(&client_state, arg1);
-        } else if (strcmp(command, "INFO") == 0) {
-            execute_info(&client_state, arg1);
-        } else if (strcmp(command, "DELETE") == 0) {
-            execute_delete(&client_state, arg1);
-        } else if (strcmp(command, "STREAM") == 0) {
-            execute_stream(&client_state, arg1);
-        } else if (strcmp(command, "LIST") == 0) {
-            execute_list(&client_state);
-        } else if (strcmp(command, "ADDACCESS") == 0) {
-            execute_addaccess(&client_state, arg1, arg2, flags & 1, flags & 2);
-        } else if (strcmp(command, "REMACCESS") == 0) {
-            execute_remaccess(&client_state, arg1, arg2);
-        } else if (strcmp(command, "EXEC") == 0) {
-            execute_exec(&client_state, arg1);
-        } else if (strcmp(command, "CREATEFOLDER") == 0) {
-            execute_createfolder(&client_state, arg1);
-        } else if (strcmp(command, "MOVE") == 0) {
-            execute_move(&client_state, arg1, arg2);
-        } else if (strcmp(command, "VIEWFOLDER") == 0) {
-            // arg1 contains folder name, or empty for root
-            execute_viewfolder(&client_state, arg1);
-        } else if (strcmp(command, "CHECKPOINT") == 0) {
-            if (!arg1[0] || !arg2[0]) {
-                printf("Error: CHECKPOINT requires <filename> and <checkpoint_tag>\n");
+        // Execute commands
+        if (strcmp(command, "file") == 0) {
+            if (strcmp(subcommand, "create") == 0) {
+                execute_create(&client_state, arg1);
+            } else if (strcmp(subcommand, "delete") == 0) {
+                execute_delete(&client_state, arg1);
+            } else if (strcmp(subcommand, "read") == 0) {
+                execute_read(&client_state, arg1);
+            } else if (strcmp(subcommand, "info") == 0) {
+                execute_info(&client_state, arg1);
+            } else if (strcmp(subcommand, "list") == 0) {
+                execute_view(&client_state, flags);
+            } else if (strcmp(subcommand, "move") == 0) {
+                execute_move(&client_state, arg1, arg2);
+            } else if (strcmp(subcommand, "stream") == 0) {
+                execute_stream(&client_state, arg1);
+            } else if (strcmp(subcommand, "exec") == 0) {
+                execute_exec(&client_state, arg1);
             } else {
-                execute_checkpoint(&client_state, arg1, arg2);
+                printf("Error: Unknown file subcommand '%s'\n", subcommand);
             }
-        } else if (strcmp(command, "VIEWCHECKPOINT") == 0) {
-            if (!arg1[0] || !arg2[0]) {
-                printf("Error: VIEWCHECKPOINT requires <filename> and <checkpoint_tag>\n");
+        }
+        else if (strcmp(command, "edit") == 0) {
+            if (strcmp(subcommand, "undo") == 0) {
+                execute_undo(&client_state, arg1);
             } else {
-                execute_viewcheckpoint(&client_state, arg1, arg2);
+                // Subcommand is actually the filename, arg1 is the index
+                int sentence_idx = atoi(arg1);
+                execute_write(&client_state, subcommand, sentence_idx);
             }
-        } else if (strcmp(command, "REVERT") == 0) {
-            if (!arg1[0] || !arg2[0]) {
-                printf("Error: REVERT requires <filename> and <checkpoint_tag>\n");
+        }
+        else if (strcmp(command, "folder") == 0) {
+            if (strcmp(subcommand, "create") == 0) {
+                execute_createfolder(&client_state, arg1);
+            } else if (strcmp(subcommand, "view") == 0) {
+                execute_viewfolder(&client_state, arg1);
             } else {
-                execute_revert(&client_state, arg1, arg2);
+                printf("Error: Unknown folder subcommand '%s'\n", subcommand);
             }
-        } else if (strcmp(command, "LISTCHECKPOINTS") == 0) {
-            if (!arg1[0]) {
-                printf("Error: LISTCHECKPOINTS requires <filename>\n");
+        }
+        else if (strcmp(command, "version") == 0) {
+            if (strcmp(subcommand, "create") == 0) {
+                if (!arg1[0] || !arg2[0]) {
+                    printf("Error: version create requires <filename> <tag>\n");
+                } else {
+                    execute_checkpoint(&client_state, arg1, arg2);
+                }
+            } else if (strcmp(subcommand, "view") == 0) {
+                if (!arg1[0] || !arg2[0]) {
+                    printf("Error: version view requires <filename> <tag>\n");
+                } else {
+                    execute_viewcheckpoint(&client_state, arg1, arg2);
+                }
+            } else if (strcmp(subcommand, "revert") == 0) {
+                if (!arg1[0] || !arg2[0]) {
+                    printf("Error: version revert requires <filename> <tag>\n");
+                } else {
+                    execute_revert(&client_state, arg1, arg2);
+                }
+            } else if (strcmp(subcommand, "list") == 0) {
+                if (!arg1[0]) {
+                    printf("Error: version list requires <filename>\n");
+                } else {
+                    execute_listcheckpoints(&client_state, arg1);
+                }
             } else {
-                execute_listcheckpoints(&client_state, arg1);
+                printf("Error: Unknown version subcommand '%s'\n", subcommand);
             }
-        } else if (strcmp(command, "REQUESTACCESS") == 0) {
-            if (!arg1[0]) {
-                printf("Error: REQUESTACCESS requires <filename> [flags]\n");
-            } else {
+        }
+        else if (strcmp(command, "access") == 0) {
+            if (strcmp(subcommand, "grant") == 0) {
+                // flags: 0x01 = read, 0x02 = write
+                if (!flags) flags = 0x01; // Default to read-only
+                execute_addaccess(&client_state, arg1, arg2, 
+                                 flags & 0x01, flags & 0x02);
+            } else if (strcmp(subcommand, "revoke") == 0) {
+                execute_remaccess(&client_state, arg1, arg2);
+            } else if (strcmp(subcommand, "request") == 0) {
                 execute_requestaccess(&client_state, arg1, flags);
-            }
-        } else if (strcmp(command, "VIEWREQUESTS") == 0) {
-            if (!arg1[0]) {
-                printf("Error: VIEWREQUESTS requires <filename>\n");
-            } else {
+            } else if (strcmp(subcommand, "requests") == 0) {
                 execute_viewrequests(&client_state, arg1);
-            }
-        } else if (strcmp(command, "APPROVEREQUEST") == 0) {
-            if (!arg1[0] || !arg2[0]) {
-                printf("Error: APPROVEREQUEST requires <filename> and <username>\n");
-            } else {
+            } else if (strcmp(subcommand, "approve") == 0) {
                 execute_approverequest(&client_state, arg1, arg2);
-            }
-        } else if (strcmp(command, "DENYREQUEST") == 0) {
-            if (!arg1[0] || !arg2[0]) {
-                printf("Error: DENYREQUEST requires <filename> and <username>\n");
-            } else {
+            } else if (strcmp(subcommand, "deny") == 0) {
                 execute_denyrequest(&client_state, arg1, arg2);
+            } else {
+                printf("Error: Unknown access subcommand '%s'\n", subcommand);
             }
-        } else {
+        }
+        else if (strcmp(command, "user") == 0) {
+            if (strcmp(subcommand, "list") == 0) {
+                execute_list(&client_state);
+            } else {
+                printf("Error: Unknown user subcommand '%s'\n", subcommand);
+            }
+        }
+        else {
             printf("Error: Unknown command '%s'\n", command);
+            printf("Type 'help' for available commands\n");
         }
     }
     

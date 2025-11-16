@@ -101,6 +101,17 @@ int ss_stream_file(int client_socket, const char* filename);
 void* handle_nm_communication(void* arg);
 void* handle_client_request(void* arg);
 
+// Request handler helpers (internal)
+void send_simple_response(int client_fd, int msg_type, int error_code);
+void handle_ss_create(int client_fd, MessageHeader* header, const char* payload);
+void handle_ss_delete(int client_fd, MessageHeader* header);
+void handle_ss_read(int client_fd, MessageHeader* header);
+void handle_ss_write_lock(int client_fd, MessageHeader* header);
+void handle_ss_write_word(int client_fd, MessageHeader* header, const char* payload);
+void handle_ss_write_unlock(int client_fd, MessageHeader* header);
+void handle_ss_info(int client_fd, MessageHeader* header);
+void handle_ss_undo(int client_fd, MessageHeader* header);
+
 // Persistence
 void load_files(void);
 void save_file_metadata(const char* filename, const char* owner);

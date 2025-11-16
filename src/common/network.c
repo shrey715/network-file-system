@@ -169,3 +169,65 @@ int connect_to_server(const char* ip, int port) {
     
     return sockfd;
 }
+
+/**
+ * init_message_header
+ * @brief Initialize a MessageHeader with common fields and zero the rest.
+ *
+ * This helper eliminates repetitive memset + field assignment patterns.
+ * Callers can override specific fields (e.g., filename, sentence_index)
+ * after calling this.
+ *
+ * @param header Pointer to header to initialize.
+ * @param msg_type MSG_REQUEST, MSG_RESPONSE, etc.
+ * @param op_code OP_* operation code.
+ * @param username Username to copy into header (may be NULL to leave empty).
+ */
+void init_message_header(MessageHeader* header, int msg_type, int op_code, const char* username) {
+    memset(header, 0, sizeof(MessageHeader));
+    header->msg_type = msg_type;
+    header->op_code = op_code;
+    if (username) {
+        strncpy(header->username, username, MAX_USERNAME - 1);
+        header->username[MAX_USERNAME - 1] = '\0';
+    }
+}
+
+/**
+ * parse_ss_info
+ * @brief Parse storage server info string in "IP:port" format.
+ *
+ * Extracts the IP address and port number from a server info string.
+ *
+ * @param ss_info Input string in "IP:port" format.
+ * @param ip_out Buffer to store extracted IP (must be at least MAX_IP bytes).
+ * @param port_out Pointer to store extracted port number.
+ * @return 0 on success, -1 on parse error.
+ */
+int parse_ss_info(const char* ss_info, char* ip_out, int* port_out) {
+    if (!ss_info || !ip_out || !port_out) {
+        return -1;
+    }
+    
+    if (sscanf(ss_info, "%[^:]:%d", ip_out, port_out) != 2) {
+        return -1;
+    }
+    
+    return 0;
+}
+
+/**
+ * safe_close_socket
+ * @brief Close a socket and set its fd to -1 to prevent reuse.
+ *
+ * This helper prevents accidental double-close and makes socket cleanup
+ * more consistent throughout the codebase.
+ *
+ * @param sockfd Pointer to socket fd; will be set to -1 after close.
+ */
+void safe_close_socket(int* sockfd) {
+    if (sockfd && *sockfd >= 0) {
+        close(*sockfd);
+        *sockfd = -1;
+    }
+}
