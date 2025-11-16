@@ -80,6 +80,7 @@ extern int enable_colors;
 #define MAX_IP 16
 #define MAX_STORAGE_DIR 512      // Maximum length for storage directory path
 #define MAX_PATH 1024            // Maximum length for full file paths
+#define MAX_FULL_PATH 1536       // MAX_PATH + MAX_FILENAME + extra (for folder_path/filename)
 #define BUFFER_SIZE 4096
 #define MAX_STORAGE_SERVERS 10
 #define MAX_FILES 1000

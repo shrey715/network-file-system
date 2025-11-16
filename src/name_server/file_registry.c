@@ -127,11 +127,11 @@ FileMetadata* nm_find_file(const char* filename) {
         if (cached_index >= 0 && cached_index < ns_state.file_count) {
             // Verify cache entry is still valid
             FileMetadata* file = &ns_state.files[cached_index];
-            char file_full_path[MAX_PATH];
+            char file_full_path[MAX_FULL_PATH];
             if (strlen(file->folder_path) > 0) {
-                snprintf(file_full_path, MAX_PATH, "%s/%s", file->folder_path, file->filename);
+                snprintf(file_full_path, MAX_FULL_PATH, "%s/%s", file->folder_path, file->filename);
             } else {
-                snprintf(file_full_path, MAX_PATH, "%s", file->filename);
+                snprintf(file_full_path, MAX_FULL_PATH, "%s", file->filename);
             }
             
             if (strcmp(file_full_path, full_path) == 0) {
@@ -221,11 +221,11 @@ int nm_delete_file(const char* filename) {
     // Construct full path for Trie/cache invalidation
     FileMetadata* file = nm_find_file(filename);
     if (file) {
-        char full_path[MAX_PATH];
+        char full_path[MAX_FULL_PATH];
         if (strlen(file->folder_path) > 0) {
-            snprintf(full_path, MAX_PATH, "%s/%s", file->folder_path, file->filename);
+            snprintf(full_path, MAX_FULL_PATH, "%s/%s", file->folder_path, file->filename);
         } else {
-            snprintf(full_path, MAX_PATH, "%s", file->filename);
+            snprintf(full_path, MAX_FULL_PATH, "%s", file->filename);
         }
         
         // Remove from Trie
@@ -1222,12 +1222,12 @@ void load_state(void) {
     if (ns_state.file_trie_root) {
         for (int i = 0; i < ns_state.file_count; i++) {
             FileMetadata* file = &ns_state.files[i];
-            char full_path[MAX_PATH];
+            char full_path[MAX_FULL_PATH];
             
             if (strlen(file->folder_path) > 0) {
-                snprintf(full_path, MAX_PATH, "%s/%s", file->folder_path, file->filename);
+                snprintf(full_path, MAX_FULL_PATH, "%s/%s", file->folder_path, file->filename);
             } else {
-                snprintf(full_path, MAX_PATH, "%s", file->filename);
+                snprintf(full_path, MAX_FULL_PATH, "%s", file->filename);
             }
             
             trie_insert(ns_state.file_trie_root, full_path, i);
