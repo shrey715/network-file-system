@@ -42,7 +42,6 @@ int execute_approverequest(ClientState* state, const char* filename, const char*
 int execute_denyrequest(ClientState* state, const char* filename, const char* username);
 
 // ============ PARSER FUNCTIONS ============
-int parse_command(const char* input, char* command, char* subcommand, 
-                  char* arg1, char* arg2, int* flags);
+int parse_command(const char* input, char* command, char* subcommand, char* arg1, char* arg2, int* flags);
 
 #endif // CLIENT_H

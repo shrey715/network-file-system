@@ -16,8 +16,7 @@
  * @param flags Out parameter for parsed flags (bitmask or mode values).
  * @return 0 on success, -1 on parse error.
  */
-int parse_command(const char* input, char* command, char* subcommand, 
-                  char* arg1, char* arg2, int* flags) {
+int parse_command(const char* input, char* command, char* subcommand, char* arg1, char* arg2, int* flags) {
     command[0] = '\0';
     subcommand[0] = '\0';
     arg1[0] = '\0';
