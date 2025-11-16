@@ -1,5 +1,6 @@
 #include "common.h"
 #include "client.h"
+#include "input.h"
 
 ClientState client_state;
 
@@ -51,27 +52,37 @@ int main(int argc, char* argv[]) {
     }
     if (response) free(response);
     
-    // Main command loop
-    char input[BUFFER_SIZE];
-    PRINT_INFO("\nEnter commands (type 'help' for list of commands, 'quit' to exit):");
+    // Initialize command history
+    InputHistory history;
+    init_history(&history);
     
+    PRINT_INFO("\nEnter commands (type 'help' for list of commands, 'quit' to exit):");
+    printf("Use Up/Down arrows for command history\n\n");
+    
+    // Main command loop
     while (1) {
-    PRINT_PROMPT();
+        char* input = read_line_with_history(&history, ANSI_BRIGHT_BLUE "> " ANSI_RESET);
         
-        if (fgets(input, sizeof(input), stdin) == NULL) {
-            break;
+        if (input == NULL) {
+            printf("\n");
+            break;  // EOF or Ctrl+C
         }
         
-        // Remove trailing newline
-        input[strcspn(input, "\n")] = 0;
+        // Skip empty lines
+        if (strlen(input) == 0) {
+            free(input);
+            continue;
+        }
         
-        if (strlen(input) == 0) continue;
+        // Add non-empty commands to history
+        add_to_history(&history, input);
         
         // Parse command
         char command[64], subcommand[64], arg1[MAX_FILENAME], arg2[MAX_USERNAME];
         int flags = 0;
         
         if (strcmp(input, "quit") == 0 || strcmp(input, "exit") == 0) {
+            free(input);
             break;
         }
         
@@ -114,12 +125,14 @@ int main(int argc, char* argv[]) {
             printf(ANSI_CYAN "User System:" ANSI_RESET "\n");
             printf("  user list                    - List all users\n");
             printf("\nquit/exit - Exit client\n\n");
+            free(input);
             continue;
         }
         
         int result = parse_command(input, command, subcommand, arg1, arg2, &flags);
         if (result < 0) {
             PRINT_ERR("Invalid command format");
+            free(input);
             continue;
         }
         
@@ -222,9 +235,12 @@ int main(int argc, char* argv[]) {
             PRINT_ERR("Unknown command '%s'", command);
             printf("Type 'help' for available commands\n");
         }
+        
+        free(input);
     }
     
     // Cleanup
+    free_history(&history);
     close(client_state.nm_socket);
     PRINT_INFO("Disconnected from Name Server");
     
