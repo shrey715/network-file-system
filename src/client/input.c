@@ -10,6 +10,13 @@
 static struct termios orig_termios;
 static int raw_mode_enabled = 0;
 
+/**
+ * disable_raw_mode
+ * @brief Restore terminal attributes to their original state if raw mode
+ *        was previously enabled. This function is idempotent.
+ *
+ * No parameters. Returns nothing.
+ */
 static void disable_raw_mode(void) {
     if (raw_mode_enabled) {
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -17,6 +24,14 @@ static void disable_raw_mode(void) {
     }
 }
 
+/**
+ * enable_raw_mode
+ * @brief Put the terminal into a raw input mode suitable for single-key
+ *        processing (disables canonical mode, echo, and most input
+ *        processing). If stdin is not a TTY the function returns -1.
+ *
+ * @return 0 on success, -1 on failure or if stdin is not a terminal.
+ */
 static int enable_raw_mode(void) {
     if (!isatty(STDIN_FILENO)) {
         return -1;  // Not a terminal
@@ -54,6 +69,15 @@ void init_history(InputHistory* hist) {
     }
 }
 
+/**
+ * add_to_history
+ * @brief Append a line to the input history buffer. Consecutive duplicate
+ *        entries are ignored. If the history buffer is full the oldest entry
+ *        is removed.
+ *
+ * @param hist Pointer to an InputHistory structure to update.
+ * @param line Null-terminated input line to add.
+ */
 void add_to_history(InputHistory* hist, const char* line) {
     if (line == NULL || strlen(line) == 0) {
         return;
@@ -88,6 +112,13 @@ void free_history(InputHistory* hist) {
     hist->current = 0;
 }
 
+/**
+ * clear_line
+ * @brief Clear the current terminal input line and reprint the prompt.
+ *
+ * @param prompt The prompt string to print after clearing the line.
+ * @param buf_len Unused (kept for compatibility with prior API).
+ */
 static void clear_line(const char* prompt, int buf_len) {
     (void)buf_len;  // Unused parameter
     // Move cursor to start of line
@@ -99,17 +130,39 @@ static void clear_line(const char* prompt, int buf_len) {
     fflush(stdout);
 }
 
+/**
+ * redraw_line
+ * @brief Re-render the prompt and current input buffer, and position the
+ *        cursor at the specified logical cursor position.
+ *
+ * @param prompt Prompt string (may include ANSI color codes).
+ * @param buffer Current input buffer to display.
+ * @param cursor_pos Cursor position within buffer (0..strlen(buffer)).
+ */
 static void redraw_line(const char* prompt, const char* buffer, int cursor_pos) {
     printf("\r%s%s\033[K", prompt, buffer);
-    
+
     // Calculate visual prompt length (excluding ANSI codes)
     int prompt_len = visual_strlen(prompt);
-    
+
     // Move cursor to correct position
     printf("\r\033[%dC", prompt_len + cursor_pos);
     fflush(stdout);
 }
 
+/**
+ * read_line_with_history
+ * @brief Read a single input line from the user with basic line-editing
+ *        and history support. If stdin is not a terminal, falls back to
+ *        fgets(). This function temporarily enables raw mode to implement
+ *        arrow-key navigation and then restores terminal state.
+ *
+ * @param hist Pointer to an InputHistory instance used for up/down
+ *             navigation and storage.
+ * @param prompt Prompt string to display (may include ANSI codes).
+ * @return Malloc'd null-terminated string containing the entered line on
+ *         success (caller must free), or NULL on EOF/error or cancel.
+ */
 char* read_line_with_history(InputHistory* hist, const char* prompt) {
     // Check if stdin is a terminal
     if (!isatty(STDIN_FILENO)) {
