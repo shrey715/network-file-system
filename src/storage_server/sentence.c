@@ -928,12 +928,35 @@ void handle_ss_info(int client_fd, MessageHeader* header) {
     long size;
     int words, chars;
     int result = ss_get_file_info(header->filename, &size, &words, &chars);
-    
+
     if (result == ERR_SUCCESS) {
-        char info[256];
-        snprintf(info, sizeof(info), "Size:%ld Words:%d Chars:%d", 
-                size, words, chars);
-        
+        // Try to read owner/created/modified from .meta if present
+        char metapath[MAX_PATH];
+        char owner[MAX_USERNAME] = "";
+        long created = 0;
+        long modified = 0;
+        if (ss_build_filepath(metapath, sizeof(metapath), header->filename, ".meta") == ERR_SUCCESS) {
+            FILE* mf = fopen(metapath, "r");
+            if (mf) {
+                char line[256];
+                while (fgets(line, sizeof(line), mf)) {
+                    if (strncmp(line, "owner:", 6) == 0) {
+                        sscanf(line, "owner:%s", owner);
+                    } else if (strncmp(line, "created:", 8) == 0) {
+                        sscanf(line, "created:%ld", &created);
+                    } else if (strncmp(line, "modified:", 9) == 0) {
+                        sscanf(line, "modified:%ld", &modified);
+                    }
+                }
+                fclose(mf);
+            }
+        }
+
+        char info[512];
+        // Format: include size/words/chars and metadata timestamps + owner
+        snprintf(info, sizeof(info), "Size:%ld Words:%d Chars:%d Created:%ld Modified:%ld Owner:%s",
+                 size, words, chars, created, modified, owner);
+
         MessageHeader resp;
         memset(&resp, 0, sizeof(resp));
         resp.msg_type = MSG_RESPONSE;

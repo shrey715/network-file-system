@@ -382,17 +382,31 @@ void* handle_client_connection(void* arg) {
                         close(ss_socket);
                         
                         if (ss_header.msg_type == MSG_RESPONSE && ss_response) {
-                            // Parse: "Size:123 Words:45 Chars:67"
+                            // Try extended parse: "Size:%ld Words:%d Chars:%d Created:%ld Modified:%ld Owner:%s"
                             long size = 0;
                             int words = 0, chars = 0;
-                            if (sscanf(ss_response, "Size:%ld Words:%d Chars:%d", 
-                                    &size, &words, &chars) == 3) {
+                            long created = 0, modified = 0;
+                            char owner[MAX_USERNAME] = "";
+
+                            int fields = sscanf(ss_response,
+                                    "Size:%ld Words:%d Chars:%d Created:%ld Modified:%ld Owner:%s",
+                                    &size, &words, &chars, &created, &modified, owner);
+
+                            if (fields >= 3) {
                                 // Update cached metadata in NM
                                 pthread_mutex_lock(&ns_state.lock);
                                 file->file_size = size;
                                 file->word_count = words;
                                 file->char_count = chars;
                                 file->last_accessed = time(NULL);
+
+                                // If extended fields were present, update timestamps/owner
+                                if (fields >= 6) {
+                                    if (created > 0) file->created_time = created;
+                                    if (modified > 0) file->last_modified = modified;
+                                    if (strlen(owner) > 0) strncpy(file->owner, owner, MAX_USERNAME-1);
+                                }
+
                                 pthread_mutex_unlock(&ns_state.lock);
                                 save_state();
                             }
