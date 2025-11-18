@@ -252,8 +252,9 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
         }
         
         char msg[256];
-        snprintf(msg, sizeof(msg), "Locked empty file %s (sentence 0) by %s", 
-                 filename, username);
+        snprintf(msg, sizeof(msg), 
+                 "Locked empty file '%s' sentence 0", 
+                 filename);
         log_message("SS", "INFO", msg);
         
         return ERR_SUCCESS;
@@ -301,8 +302,9 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
         }
         
         char msg[256];
-        snprintf(msg, sizeof(msg), "Locked new sentence %d in %s by %s (appending)", 
-                 sentence_idx, filename, username);
+        snprintf(msg, sizeof(msg), 
+                 "Locked new sentence %d in '%s' (append mode)", 
+                 sentence_idx, filename);
         log_message("SS", "INFO", msg);
         
         return ERR_SUCCESS;
@@ -324,8 +326,9 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
     }
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Locked sentence %d in %s by %s", 
-             sentence_idx, filename, username);
+    snprintf(msg, sizeof(msg), 
+             "Locked sentence %d in '%s' (total sentences: %d)", 
+             sentence_idx, filename, count);
     log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -622,8 +625,9 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
     }
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Write completed: %s sentence %d by %s (re-parsed to %d sentences)", 
-             filename, sentence_idx, username, new_count);
+    snprintf(msg, sizeof(msg), 
+             "Write completed on '%s' sentence %d (re-parsed to %d sentences)", 
+             filename, sentence_idx, new_count);
     log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -701,7 +705,7 @@ int ss_undo_file(const char* filename) {
     
     if (result == 0) {
         char msg[256];
-        snprintf(msg, sizeof(msg), "Undo performed: %s", filename);
+        snprintf(msg, sizeof(msg), "Undo performed on '%s'", filename);
         log_message("SS", "INFO", msg);
         return ERR_SUCCESS;
     }

@@ -29,7 +29,11 @@ int ss_build_filepath(char* dest, size_t dest_size, const char* filename, const 
     // snprintf returns the number of characters that would have been written (excluding null)
     // If written >= dest_size, truncation occurred
     if (written < 0 || (size_t)written >= dest_size) {
-        log_message("SS", "ERROR", "Path construction failed - path too long");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Path construction failed for '%s' - exceeds %zu byte limit", 
+                 filename, dest_size);
+        log_message("SS", "ERROR", errmsg);
         return ERR_FILE_OPERATION_FAILED;
     }
     
@@ -83,7 +87,7 @@ int ss_create_file(const char* filename, const char* owner) {
     save_file_metadata(filename, owner);
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Created file: %s (owner: %s)", filename, owner);
+    snprintf(msg, sizeof(msg), "Created file '%s'", filename);
     log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -129,7 +133,7 @@ int ss_delete_file(const char* filename) {
     }
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Deleted file: %s", filename);
+    snprintf(msg, sizeof(msg), "Deleted file '%s'", filename);
     log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -162,8 +166,9 @@ int ss_read_file(const char* filename, char** content) {
         return ERR_FILE_OPERATION_FAILED;
     }
     
+    long file_size = strlen(*content);
     char msg[256];
-    snprintf(msg, sizeof(msg), "Read file: %s", filename);
+    snprintf(msg, sizeof(msg), "Read file '%s' (%ld bytes)", filename, file_size);
     log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -284,7 +289,11 @@ int ss_move_file(const char* old_filename, const char* new_filename) {
     
     // Move the main file
     if (rename(old_filepath, new_filepath) != 0) {
-        log_message("SS", "ERROR", "Failed to move file");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Failed to move '%s' to '%s': %s", 
+                 old_filename, new_filename, strerror(errno));
+        log_message("SS", "ERROR", errmsg);
         return ERR_FILE_OPERATION_FAILED;
     }
     
@@ -299,7 +308,7 @@ int ss_move_file(const char* old_filename, const char* new_filename) {
     }
     
     char msg[512];
-    snprintf(msg, sizeof(msg), "Moved file: %s -> %s", old_filename, new_filename);
+    snprintf(msg, sizeof(msg), "Moved '%s' -> '%s'", old_filename, new_filename);
     log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -320,7 +329,11 @@ void save_file_metadata(const char* filename, const char* owner) {
     
     // Safely construct the metadata file path
     if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") != ERR_SUCCESS) {
-        log_message("SS", "ERROR", "Failed to construct metadata path");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Failed to construct metadata path for '%s'", 
+                 filename);
+        log_message("SS", "ERROR", errmsg);
         return;
     }
     

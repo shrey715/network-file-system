@@ -25,7 +25,6 @@ logs/*
 # === Debug Files ===
 *.dSYM/
 *.gdb_history
-core
 vgcore.*
 
 # === IDE / Editor Files ===

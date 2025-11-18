@@ -28,13 +28,22 @@ void* handle_client_connection(void* arg) {
     while (recv_message(client_fd, &header, &payload) > 0) {
         char response_buf[BUFFER_SIZE];
         
-        log_operation("NM", header.username, 
-                     header.op_code == OP_VIEW ? "VIEW" :
-                     header.op_code == OP_READ ? "READ" :
-                     header.op_code == OP_CREATE ? "CREATE" :
-                     header.op_code == OP_WRITE ? "WRITE" :
-                     header.op_code == OP_DELETE ? "DELETE" : "OTHER",
-                     header.filename, 0);
+        // Log operation (pre-formatted message)
+        if (header.filename[0]) {
+            char logmsg[512];
+            const char* op_name = 
+                header.op_code == OP_VIEW ? "VIEW" :
+                header.op_code == OP_READ ? "READ" :
+                header.op_code == OP_CREATE ? "CREATE" :
+                header.op_code == OP_WRITE ? "WRITE" :
+                header.op_code == OP_DELETE ? "DELETE" :
+                header.op_code == OP_INFO ? "INFO" :
+                header.op_code == OP_LIST ? "LIST" : "OTHER";
+            snprintf(logmsg, sizeof(logmsg), 
+                     "User '%s' operation %s on file '%s'", 
+                     header.username, op_name, header.filename);
+            log_message("NM", "DEBUG", logmsg);
+        }
         
         switch (header.op_code) {
             case OP_REGISTER_SS: {
@@ -499,8 +508,7 @@ void* handle_client_connection(void* arg) {
                 
                 if (result == ERR_SUCCESS) {
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s created folder: %s", 
-                             header.username, header.foldername);
+                    snprintf(msg, sizeof(msg), "Created folder '%s'", header.foldername);
                     log_message("NM", "INFO", msg);
                 }
                 break;
@@ -604,8 +612,9 @@ void* handle_client_connection(void* arg) {
                 
                 if (result == ERR_SUCCESS) {
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s moved file %s to folder %s", 
-                             header.username, header.filename, header.foldername);
+                    snprintf(msg, sizeof(msg), 
+                             "Moved file '%s' to folder '%s'", 
+                             header.filename, header.foldername);
                     log_message("NM", "INFO", msg);
                 }
                 break;
@@ -777,8 +786,9 @@ void* handle_client_connection(void* arg) {
                 
                 if (ss_response.error_code == ERR_SUCCESS) {
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s created checkpoint [%s] for file %s", 
-                             header.username, header.checkpoint_tag, header.filename);
+                    snprintf(msg, sizeof(msg), 
+                             "Created checkpoint '%s' for file '%s'", 
+                             header.checkpoint_tag, header.filename);
                     log_message("NM", "INFO", msg);
                 }
                 
@@ -906,8 +916,9 @@ void* handle_client_connection(void* arg) {
                 
                 if (ss_response.error_code == ERR_SUCCESS) {
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s reverted file %s to checkpoint [%s]", 
-                             header.username, header.filename, header.checkpoint_tag);
+                    snprintf(msg, sizeof(msg), 
+                             "Reverted file '%s' to checkpoint '%s'", 
+                             header.filename, header.checkpoint_tag);
                     log_message("NM", "INFO", msg);
                     
                     // Update file metadata (size, word count, etc.) after revert
@@ -1030,8 +1041,9 @@ void* handle_client_connection(void* arg) {
                     }
                     
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s requested %s access to file %s", 
-                             header.username, perm_str, header.filename);
+                    snprintf(msg, sizeof(msg), 
+                             "Requested %s access to file '%s'", 
+                             perm_str, header.filename);
                     log_message("NM", "INFO", msg);
                 } else if (result == ERR_ALREADY_HAS_ACCESS) {
                     // Send back what access they have in the flags field
@@ -1089,8 +1101,9 @@ void* handle_client_connection(void* arg) {
                     send_message(client_fd, &header, NULL);
                     
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s approved access request from %s for file %s", 
-                             header.username, payload, header.filename);
+                    snprintf(msg, sizeof(msg), 
+                             "Approved access request from '%s' for file '%s'", 
+                             payload, header.filename);
                     log_message("NM", "INFO", msg);
                 } else {
                     header.msg_type = MSG_ERROR;
@@ -1121,8 +1134,9 @@ void* handle_client_connection(void* arg) {
                     send_message(client_fd, &header, NULL);
                     
                     char msg[BUFFER_SIZE];
-                    snprintf(msg, sizeof(msg), "User %s denied access request from %s for file %s", 
-                             header.username, payload, header.filename);
+                    snprintf(msg, sizeof(msg), 
+                             "Denied access request from '%s' for file '%s'", 
+                             payload, header.filename);
                     log_message("NM", "INFO", msg);
                 } else {
                     header.msg_type = MSG_ERROR;

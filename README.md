@@ -1,5 +1,7 @@
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/0ek2UV58)
 
+[Perplexity Space Link](https://www.perplexity.ai/spaces/course-project-2023113012-2023-oDpEyBQqT6y86qB.0gsOOA#0)
+
 # Docs++ - Distributed File System
 
 A simplified, shared document system with support for concurrency and access control, similar in spirit to Google Docs.

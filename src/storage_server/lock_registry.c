@@ -93,7 +93,11 @@ int add_locked_file(const char* filename, const char* username, int sentence_idx
     
     if (slot == -1) {
         pthread_mutex_unlock(&registry_mutex);
-        log_message("SS", "ERROR", "Lock registry full - cannot add more locks");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Lock registry full (max %d locks) - cannot add lock for '%s' by '%s'", 
+                 MAX_LOCKED_FILES, filename, username);
+        log_message("SS", "WARN", errmsg);
         return ERR_FILE_OPERATION_FAILED;
     }
     
@@ -116,9 +120,10 @@ int add_locked_file(const char* filename, const char* username, int sentence_idx
     pthread_mutex_unlock(&registry_mutex);
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Added lock: %s (sentence %d) by %s", 
-             filename, sentence_idx, username);
-    log_message("SS", "DEBUG", msg);
+    snprintf(msg, sizeof(msg), 
+             "Lock acquired on '%s' sentence %d (active locks: %d)", 
+             filename, sentence_idx, locked_file_count);
+    log_message("SS", "INFO", msg);
     
     return ERR_SUCCESS;
 }
@@ -171,16 +176,22 @@ int remove_lock(const char* filename, int sentence_idx) {
             pthread_mutex_unlock(&registry_mutex);
             
             char msg[256];
-            snprintf(msg, sizeof(msg), "Removed lock: %s (sentence %d)", 
+            snprintf(msg, sizeof(msg), 
+                     "Lock released on '%s' sentence %d", 
                      filename, sentence_idx);
-            log_message("SS", "DEBUG", msg);
+            log_message("SS", "INFO", msg);
             
             return ERR_SUCCESS;
         }
     }
     
     pthread_mutex_unlock(&registry_mutex);
-    log_message("SS", "WARN", "Attempted to remove non-existent lock");
+    
+    char msg[256];
+    snprintf(msg, sizeof(msg), 
+             "Attempted to remove non-existent lock on '%s' sentence %d", 
+             filename, sentence_idx);
+    log_message("SS", "WARN", msg);
     return ERR_PERMISSION_DENIED;
 }
 
@@ -237,7 +248,7 @@ int cleanup_user_locks(const char* username) {
     
     if (removed > 0) {
         char msg[256];
-        snprintf(msg, sizeof(msg), "Cleaned up %d locks for user: %s", removed, username);
+        snprintf(msg, sizeof(msg), "Released %d abandoned locks on disconnect", removed);
         log_message("SS", "INFO", msg);
     }
     

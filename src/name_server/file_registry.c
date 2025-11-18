@@ -85,8 +85,9 @@ int nm_register_file(const char* filename, const char* folder_path, const char* 
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Registered file: %s in folder '%s' (owner: %s, SS: %d)", 
-             filename, folder_path ? folder_path : "/", owner, ss_id);
+    snprintf(msg, sizeof(msg), 
+             "Registered file '%s' in folder '%s' (SS: %d)", 
+             filename, folder_path ? folder_path : "/", ss_id);
     log_message("NM", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -268,7 +269,7 @@ int nm_delete_file(const char* filename) {
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Deleted file: %s", filename);
+    snprintf(msg, sizeof(msg), "Deleted file '%s'", filename);
     log_message("NM", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -370,7 +371,8 @@ int nm_register_storage_server(int server_id, const char* ip, int nm_port, int c
     pthread_mutex_unlock(&ns_state.lock);
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Registered Storage Server: %d (%s:%d)", 
+    snprintf(msg, sizeof(msg), 
+             "Registered Storage Server %d (%s:%d)", 
              server_id, ip, client_port);
     log_message("NM", "INFO", msg);
     
@@ -477,8 +479,9 @@ int nm_add_access(const char* filename, const char* username, int read, int writ
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Added access: %s for user %s (R:%d W:%d)", 
-             filename, username, read, write);
+    snprintf(msg, sizeof(msg), 
+             "Granted access to '%s' (read:%d write:%d)", 
+             filename, read, write);
     log_message("NM", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -536,7 +539,7 @@ int nm_remove_access(const char* filename, const char* username) {
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Removed access: %s for user %s", filename, username);
+    snprintf(msg, sizeof(msg), "Revoked access to '%s'", filename);
     log_message("NM", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -603,7 +606,8 @@ int nm_move_file(const char* filename, const char* new_folder_path) {
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Moved file %s to folder '%s'", 
+    snprintf(msg, sizeof(msg), 
+             "Moved file '%s' to folder '%s'", 
              filename, new_folder_path ? new_folder_path : "/");
     log_message("NM", "INFO", msg);
     
@@ -679,7 +683,7 @@ int nm_create_folder(const char* foldername, const char* owner) {
     save_state();
     
     char msg[256];
-    snprintf(msg, sizeof(msg), "Created folder: %s (owner: %s)", foldername, owner);
+    snprintf(msg, sizeof(msg), "Created folder '%s'", foldername);
     log_message("NM", "INFO", msg);
     
     return ERR_SUCCESS;
@@ -1234,7 +1238,7 @@ void load_state(void) {
         }
         
         char msg[128];
-        snprintf(msg, sizeof(msg), "Rebuilt Trie with %d files for efficient search", ns_state.file_count);
+        snprintf(msg, sizeof(msg), "Rebuilt Trie with %d files", ns_state.file_count);
         log_message("NM", "INFO", msg);
     }
 }

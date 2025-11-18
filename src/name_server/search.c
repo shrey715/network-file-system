@@ -426,7 +426,7 @@ void cache_print_stats(LRUCache* cache) {
     
     char msg[256];
     snprintf(msg, sizeof(msg), 
-             "Cache Stats - Size: %d/%d, Hits: %ld, Misses: %ld, Hit Rate: %.2f%%",
+             "Cache Stats - Size: %d/%d | Hits: %ld | Misses: %ld | Hit Rate: %.2f%%",
              cache->size, cache->capacity, cache->hits, cache->misses, hit_rate);
     log_message("NM", "INFO", msg);
     

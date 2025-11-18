@@ -18,7 +18,11 @@ int send_message(int sockfd, MessageHeader* header, const char* payload) {
     // Send header first
     ssize_t sent = send(sockfd, header, sizeof(MessageHeader), 0);
     if (sent != sizeof(MessageHeader)) {
-        perror("send header failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Failed to send message header on socket %d: %s", 
+                 sockfd, strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         return -1;
     }
     
@@ -26,7 +30,11 @@ int send_message(int sockfd, MessageHeader* header, const char* payload) {
     if (header->data_length > 0 && payload != NULL) {
         sent = send(sockfd, payload, header->data_length, 0);
         if (sent != header->data_length) {
-            perror("send payload failed");
+            char errmsg[256];
+            snprintf(errmsg, sizeof(errmsg), 
+                     "Failed to send payload (%d bytes) on socket %d: %s", 
+                     header->data_length, sockfd, strerror(errno));
+            log_message("NETWORK", "ERROR", errmsg);
             return -1;
         }
     }
@@ -59,7 +67,13 @@ int recv_message(int sockfd, MessageHeader* header, char** payload) {
     // Receive header
     ssize_t received = recv(sockfd, header, sizeof(MessageHeader), MSG_WAITALL);
     if (received <= 0) {
-        if (received < 0) perror("recv header failed");
+        if (received < 0) {
+            char errmsg[256];
+            snprintf(errmsg, sizeof(errmsg), 
+                     "Failed to receive message header on socket %d: %s", 
+                     sockfd, strerror(errno));
+            log_message("NETWORK", "ERROR", errmsg);
+        }
         return received;
     }
     
@@ -67,13 +81,21 @@ int recv_message(int sockfd, MessageHeader* header, char** payload) {
     if (payload && header->data_length > 0) {
         *payload = (char*)malloc(header->data_length + 1);
         if (*payload == NULL) {
-            perror("malloc failed");
+            char errmsg[256];
+            snprintf(errmsg, sizeof(errmsg), 
+                     "Failed to allocate %d bytes for payload: %s", 
+                     header->data_length, strerror(errno));
+            log_message("NETWORK", "ERROR", errmsg);
             return -1;
         }
         
         received = recv(sockfd, *payload, header->data_length, MSG_WAITALL);
         if (received != header->data_length) {
-            perror("recv payload failed");
+            char errmsg[256];
+            snprintf(errmsg, sizeof(errmsg), 
+                     "Failed to receive payload (%d bytes expected, %zd received) on socket %d: %s", 
+                     header->data_length, received, sockfd, strerror(errno));
+            log_message("NETWORK", "ERROR", errmsg);
             free(*payload);
             *payload = NULL;
             return -1;
@@ -100,14 +122,18 @@ int recv_message(int sockfd, MessageHeader* header, char** payload) {
 int create_server_socket(int port) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
-        perror("socket creation failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Failed to create socket: %s", strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         return -1;
     }
     
     // Set socket options
     int opt = 1;
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        perror("setsockopt failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Failed to set SO_REUSEADDR: %s", strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         close(sockfd);
         return -1;
     }
@@ -120,14 +146,18 @@ int create_server_socket(int port) {
     server_addr.sin_port = htons(port);
     
     if (bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("bind failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Failed to bind to port %d: %s", port, strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         close(sockfd);
         return -1;
     }
     
     // Listen for connections
     if (listen(sockfd, 10) < 0) {
-        perror("listen failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Failed to listen on port %d: %s", port, strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         close(sockfd);
         return -1;
     }
@@ -146,7 +176,9 @@ int create_server_socket(int port) {
 int connect_to_server(const char* ip, int port) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
-        perror("socket creation failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Failed to create socket: %s", strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         return -1;
     }
     
@@ -156,13 +188,18 @@ int connect_to_server(const char* ip, int port) {
     server_addr.sin_port = htons(port);
     
     if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
-        perror("invalid address");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Invalid address '%s': %s", ip, strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         close(sockfd);
         return -1;
     }
     
     if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("connection failed");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), "Failed to connect to %s:%d: %s", 
+                 ip, port, strerror(errno));
+        log_message("NETWORK", "ERROR", errmsg);
         close(sockfd);
         return -1;
     }

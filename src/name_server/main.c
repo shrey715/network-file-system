@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
     ns_state.file_cache = cache_create(LRU_CACHE_SIZE);
     
     if (!ns_state.file_trie_root || !ns_state.file_cache) {
-        log_message("NM", "ERROR", "Failed to initialize search structures");
+        log_message("NM", "ERROR", "Failed to initialize Trie and LRU cache structures");
         return 1;
     }
     
@@ -68,7 +68,7 @@ int main(int argc, char* argv[]) {
             char ip[MAX_IP];
             inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
             
-            snprintf(msg, sizeof(msg), "New connection from %s", ip);
+            snprintf(msg, sizeof(msg), "New connection from %s (fd %d)", ip, *client_fd);
             log_message("NM", "INFO", msg);
             
             pthread_t thread;

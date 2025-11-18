@@ -22,12 +22,20 @@ int main(int argc, char* argv[]) {
     create_directory(config.storage_dir);
     create_directory("logs");
     
-    log_message("SS", "INFO", "Storage Server starting");
+    char startup_msg[1024];
+    snprintf(startup_msg, sizeof(startup_msg), 
+             "Storage Server %d starting | Storage dir: %s", 
+             config.server_id, config.storage_dir);
+    log_message("SS", "INFO", startup_msg);
     
     // Register with Name Server
     int nm_socket = connect_to_server(config.nm_ip, config.nm_port);
     if (nm_socket < 0) {
-        log_message("SS", "ERROR", "Failed to connect to Name Server");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Failed to connect to Name Server at %s:%d", 
+                 config.nm_ip, config.nm_port);
+        log_message("SS", "ERROR", errmsg);
         return 1;
     }
     
@@ -48,9 +56,13 @@ int main(int argc, char* argv[]) {
     char* response;
     recv_message(nm_socket, &header, &response);
     if (header.msg_type == MSG_ACK) {
-        log_message("SS", "INFO", "Registered with Name Server");
+        char reg_msg[256];
+        snprintf(reg_msg, sizeof(reg_msg), 
+                 "Registered with Name Server | Server ID: %d | Client Port: %d | NM Port: %d",
+                 config.server_id, config.client_port, config.nm_port);
+        log_message("SS", "INFO", reg_msg);
     } else {
-        log_message("SS", "ERROR", "Registration failed");
+        log_message("SS", "ERROR", "Registration failed - Name Server rejected");
         close(nm_socket);
         return 1;
     }
@@ -59,7 +71,11 @@ int main(int argc, char* argv[]) {
     // Create client listener socket
     int client_socket = create_server_socket(config.client_port);
     if (client_socket < 0) {
-        log_message("SS", "ERROR", "Failed to create client socket");
+        char errmsg[256];
+        snprintf(errmsg, sizeof(errmsg), 
+                 "Failed to create client socket on port %d", 
+                 config.client_port);
+        log_message("SS", "ERROR", errmsg);
         close(nm_socket);
         return 1;
     }

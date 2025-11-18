@@ -129,11 +129,19 @@ int execute_view(ClientState* state, int flags) {
                         char filename[MAX_FILENAME];
                         int words, chars;
                         char lastaccess[32];
+                        char date[16];
+                        char time[16];
                         char owner[MAX_USERNAME];
 
+                        // char debug_info[256];
+                        // sprintf(debug_info, "Parsing line: '%s'", p);
+                        // log_message("CLIENT", "DEBUG", debug_info);
+
                         // Parse the trimmed line format from name server
-                        if (sscanf(p, "%s %d %d %s %s", 
-                                  filename, &words, &chars, lastaccess, owner) == 5) {
+                        if (sscanf(p, "%s %d %d %s %s %s", 
+                                  filename, &words, &chars, date, time, owner) == 6) {
+                            snprintf(lastaccess, sizeof(lastaccess), "%s %s", date, time);
+                            
                             table_add_row(&table);
                             int row = table.num_rows - 1;
 
