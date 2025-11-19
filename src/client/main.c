@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
             printf("  access grant <file> <user> [-R|-W]   - Grant access\n");
             printf("  access revoke <file> <user>          - Revoke access\n");
             printf("  access request <file> [-R] [-W]      - Request access\n");
-            printf("  access requests <file>               - View requests (owner)\n");
+            printf("  access viewrequests <file>           - View requests (owner)\n");
             printf("  access approve <file> <user>         - Approve request (owner)\n");
             printf("  access deny <file> <user>            - Deny request (owner)\n");
             printf("\n");
@@ -208,12 +208,16 @@ int main(int argc, char* argv[]) {
             if (strcmp(subcommand, "grant") == 0) {
                 // flags: 0x01 = read, 0x02 = write
                 if (!flags) flags = 0x01; // Default to read-only
-                execute_addaccess(&client_state, arg1, arg2, flags & 0x01, flags & 0x02);
+                int read = (flags & 0x01) ? 1 : 0;
+                int write = (flags & 0x02) ? 1 : 0;
+                // Write access implies read access
+                if (write) read = 1;
+                execute_addaccess(&client_state, arg1, arg2, read, write);
             } else if (strcmp(subcommand, "revoke") == 0) {
                 execute_remaccess(&client_state, arg1, arg2);
             } else if (strcmp(subcommand, "request") == 0) {
                 execute_requestaccess(&client_state, arg1, flags);
-            } else if (strcmp(subcommand, "requests") == 0) {
+            } else if (strcmp(subcommand, "viewrequests") == 0) {
                 execute_viewrequests(&client_state, arg1);
             } else if (strcmp(subcommand, "approve") == 0) {
                 execute_approverequest(&client_state, arg1, arg2);

@@ -297,6 +297,12 @@ int nm_check_permission(const char* filename, const char* username, int need_wri
         return ERR_FILE_NOT_FOUND;
     }
     
+    // Owner always has full permissions
+    if (strcmp(file->owner, username) == 0) {
+        pthread_mutex_unlock(&ns_state.lock);
+        return ERR_SUCCESS;
+    }
+    
     // Check ACL
     for (int i = 0; i < file->acl_count; i++) {
         if (strcmp(file->acl[i].username, username) == 0) {

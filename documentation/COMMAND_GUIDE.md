@@ -98,7 +98,7 @@ Manage file permissions and access requests.
 | `access grant <file> <user> [-R\|-W]` | Grant access to user | `access grant file.txt alice -R` |
 | `access revoke <file> <user>` | Revoke user's access | `access revoke file.txt bob` |
 | `access request <file> [-R] [-W]` | Request access to file | `access request doc.txt -R` |
-| `access requests <file>` | View pending requests (owner) | `access requests myfile.txt` |
+| `access viewrequests <file>` | View pending requests (owner) | `access viewrequests myfile.txt` |
 | `access approve <file> <user>` | Approve request (owner) | `access approve file.txt alice` |
 | `access deny <file> <user>` | Deny request (owner) | `access deny file.txt bob` |
 
@@ -111,7 +111,7 @@ Manage file permissions and access requests.
 ```bash
 # Another user requests access
 # You view pending requests
-access requests myfile.txt
+access viewrequests myfile.txt
 
 # Approve or deny
 access approve myfile.txt alice
@@ -154,7 +154,7 @@ For users familiar with the old command structure:
 | `ADDACCESS -R f.txt bob` | `access grant f.txt bob -R` |
 | `REMACCESS f.txt bob` | `access revoke f.txt bob` |
 | `REQUESTACCESS -R f.txt` | `access request f.txt -R` |
-| `VIEWREQUESTS f.txt` | `access requests f.txt` |
+| `VIEWREQUESTS f.txt` | `access viewrequests f.txt` |
 | `APPROVEREQUEST f.txt bob` | `access approve f.txt bob` |
 | `DENYREQUEST f.txt bob` | `access deny f.txt bob` |
 | `CREATEFOLDER docs` | `folder create docs` |

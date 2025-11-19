@@ -40,28 +40,38 @@ int parse_command(const char* input, char* command, char* subcommand, char* arg1
 
     // Handle flags for specific commands
     if (strcmp(command, "access") == 0 && strcmp(subcommand, "grant") == 0) {
-        // Parse -R or -W flags
+        // access grant <file> <user> [-R|-W]
+        // Parse filename first
         token = strtok(NULL, " \t");
-        while (token && token[0] == '-') {
+        if (token) strcpy(arg1, token);
+        
+        // Parse username second
+        token = strtok(NULL, " \t");
+        if (token) strcpy(arg2, token);
+        
+        // Then parse flags (-R or -W can come after)
+        token = strtok(NULL, " \t");
+        while (token) {
             if (strcmp(token, "-R") == 0) *flags |= 0x01;
             else if (strcmp(token, "-W") == 0) *flags |= 0x02;
             token = strtok(NULL, " \t");
         }
-        if (token) strcpy(arg1, token);
-        token = strtok(NULL, " \t");
-        if (token) strcpy(arg2, token);
         return 0;
     }
 
     if (strcmp(command, "access") == 0 && strcmp(subcommand, "request") == 0) {
-        // Parse -R or -W flags
+        // access request <filename> [-R] [-W]
+        // Parse filename first
         token = strtok(NULL, " \t");
-        while (token && token[0] == '-') {
+        if (token) strcpy(arg1, token);
+        
+        // Then parse flags (-R or -W can come after)
+        token = strtok(NULL, " \t");
+        while (token) {
             if (strcmp(token, "-R") == 0) *flags |= 0x01;
             else if (strcmp(token, "-W") == 0) *flags |= 0x02;
             token = strtok(NULL, " \t");
         }
-        if (token) strcpy(arg1, token);
         return 0;
     }
 
