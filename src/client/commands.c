@@ -241,14 +241,22 @@ int execute_read(ClientState* state, const char* filename) {
  * @return Error code returned by NM.
  */
 int execute_create(ClientState* state, const char* filename) {
+    // Parse filename to extract folder path and base filename
+    const char* last_slash = strrchr(filename, '/');
+    const char* base_filename = last_slash ? (last_slash + 1) : filename;
+    
+    // Validate filename - reject reserved extensions
+    if (!is_valid_filename(base_filename)) {
+        PRINT_ERR("Invalid filename: Cannot use reserved extensions (.meta, .undo, .stats, .checkpoint.*)");
+        return ERR_INVALID_FILENAME;
+    }
+    
     MessageHeader header;
     memset(&header, 0, sizeof(header));
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_CREATE;
     strcpy(header.username, state->username);
     
-    // Parse filename to extract folder path and base filename
-    const char* last_slash = strrchr(filename, '/');
     if (last_slash) {
         // File has a folder path
         int folder_len = last_slash - filename;

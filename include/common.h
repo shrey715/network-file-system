@@ -171,6 +171,7 @@ extern int enable_colors;
 #define ERR_REQUEST_EXISTS 122
 #define ERR_REQUEST_NOT_FOUND 123
 #define ERR_ALREADY_HAS_ACCESS 124
+#define ERR_INVALID_FILENAME 125
 
 // ============ MESSAGE STRUCTURE ============
 typedef struct {
@@ -207,6 +208,7 @@ char* read_file_content(const char* filepath);
 int write_file_content(const char* filepath, const char* content);
 int file_exists(const char* filepath);
 long get_file_size(const char* filepath);
+int is_valid_filename(const char* filename);  // Check if filename doesn't use reserved extensions
 void create_directory(const char* path);
 char* get_error_message(int error_code);
 

@@ -191,6 +191,53 @@ char* get_error_message(int error_code) {
         case ERR_REQUEST_EXISTS: return "Access request already exists";
         case ERR_REQUEST_NOT_FOUND: return "Access request not found";
         case ERR_ALREADY_HAS_ACCESS: return "Already has access";
+        case ERR_INVALID_FILENAME: return "Invalid filename: reserved extension not allowed";
         default: return "Unknown error";
     }
+}
+
+/**
+ * is_valid_filename
+ * @brief Check if a filename is valid (doesn't use reserved extensions)
+ * 
+ * Reserved extensions that users cannot create:
+ * - .meta (system metadata)
+ * - .undo (undo information)
+ * - .stats (file statistics)
+ * - .checkpoint.* (checkpoint files)
+ * 
+ * @param filename The filename to validate
+ * @return 1 if valid, 0 if invalid
+ */
+int is_valid_filename(const char* filename) {
+    if (!filename || strlen(filename) == 0) {
+        return 0;
+    }
+    
+    // Check for reserved extensions
+    const char* reserved_extensions[] = {
+        ".meta",
+        ".undo",
+        ".stats"
+    };
+    
+    size_t filename_len = strlen(filename);
+    
+    // Check each reserved extension
+    for (size_t i = 0; i < sizeof(reserved_extensions) / sizeof(reserved_extensions[0]); i++) {
+        size_t ext_len = strlen(reserved_extensions[i]);
+        if (filename_len >= ext_len) {
+            // Check if filename ends with this extension
+            if (strcmp(filename + filename_len - ext_len, reserved_extensions[i]) == 0) {
+                return 0;  // Invalid: uses reserved extension
+            }
+        }
+    }
+    
+    // Check for .checkpoint. pattern (e.g., file.checkpoint.v1)
+    if (strstr(filename, ".checkpoint.") != NULL) {
+        return 0;  // Invalid: uses checkpoint pattern
+    }
+    
+    return 1;  // Valid filename
 }

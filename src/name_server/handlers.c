@@ -196,6 +196,15 @@ void* handle_client_connection(void* arg) {
             }
             
             case OP_CREATE: {
+                // Validate filename - reject reserved extensions
+                if (!is_valid_filename(header.filename)) {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_INVALID_FILENAME;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    break;
+                }
+                
                 // Create file - select SS and forward request
                 int ss_id = nm_select_storage_server();
                 if (ss_id < 0) {
