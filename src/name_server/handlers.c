@@ -24,6 +24,7 @@ void* handle_client_connection(void* arg) {
     
     MessageHeader header;
     char* payload = NULL;
+    char connected_username[MAX_USERNAME] = "";  // Track connected user for cleanup
     
     while (recv_message(client_fd, &header, &payload) > 0) {
         char response_buf[BUFFER_SIZE];
@@ -70,9 +71,35 @@ void* handle_client_connection(void* arg) {
             case OP_CONNECT_CLIENT: {
                 // Register client - payload contains username
                 pthread_mutex_lock(&ns_state.lock);
+                
+                // Check if username is already taken
+                int username_exists = 0;
+                for (int i = 0; i < ns_state.client_count; i++) {
+                    if (ns_state.clients[i].is_connected && 
+                        strcmp(ns_state.clients[i].username, payload) == 0) {
+                        username_exists = 1;
+                        break;
+                    }
+                }
+                
+                if (username_exists) {
+                    pthread_mutex_unlock(&ns_state.lock);
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = ERR_USERNAME_TAKEN;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "Username '%s' is already in use", payload);
+                    log_message("NM", "WARNING", msg);
+                    break;
+                }
+                
+                // Register new client
                 if (ns_state.client_count < MAX_CLIENTS) {
                     ClientInfo* client = &ns_state.clients[ns_state.client_count];
                     strcpy(client->username, payload);
+                    strcpy(connected_username, payload);  // Track username for disconnect
                     
                     struct sockaddr_in addr;
                     socklen_t addr_len = sizeof(addr);
@@ -82,6 +109,11 @@ void* handle_client_connection(void* arg) {
                     client->is_connected = 1;
                     client->last_activity = time(NULL);
                     ns_state.client_count++;
+                    
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "User '%s' connected from %s", 
+                             client->username, client->ip);
+                    log_message("NM", "INFO", msg);
                 }
                 pthread_mutex_unlock(&ns_state.lock);
                 
@@ -1183,6 +1215,28 @@ void* handle_client_connection(void* arg) {
                 break;
             }
             
+            case OP_DISCONNECT: {
+                // Mark user as disconnected
+                pthread_mutex_lock(&ns_state.lock);
+                for (int i = 0; i < ns_state.client_count; i++) {
+                    if (strcmp(ns_state.clients[i].username, header.username) == 0) {
+                        ns_state.clients[i].is_connected = 0;
+                        
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "User '%s' disconnected", header.username);
+                        log_message("NM", "INFO", msg);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&ns_state.lock);
+                
+                header.msg_type = MSG_ACK;
+                header.error_code = ERR_SUCCESS;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                break;
+            }
+            
             default:
                 header.msg_type = MSG_ERROR;
                 header.error_code = ERR_INVALID_COMMAND;
@@ -1195,6 +1249,22 @@ void* handle_client_connection(void* arg) {
             free(payload);
             payload = NULL;
         }
+    }
+    
+    // Mark user as disconnected when connection closes
+    if (connected_username[0] != '\0') {
+        pthread_mutex_lock(&ns_state.lock);
+        for (int i = 0; i < ns_state.client_count; i++) {
+            if (strcmp(ns_state.clients[i].username, connected_username) == 0) {
+                ns_state.clients[i].is_connected = 0;
+                
+                char msg[256];
+                snprintf(msg, sizeof(msg), "User '%s' connection closed", connected_username);
+                log_message("NM", "INFO", msg);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&ns_state.lock);
     }
     
     close(client_fd);

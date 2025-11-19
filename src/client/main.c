@@ -46,7 +46,13 @@ int main(int argc, char* argv[]) {
         client_state.is_connected = 1;
         PRINT_OK("Connected to Name Server as '%s'", client_state.username);
     } else {
-        PRINT_ERR("Failed to register with Name Server");
+        if (header.error_code == ERR_USERNAME_TAKEN) {
+            PRINT_ERR("Username '%s' is already in use. Please choose a different username.", 
+                     client_state.username);
+        } else {
+            PRINT_ERR("Failed to register with Name Server: %s", 
+                     get_error_message(header.error_code));
+        }
         close(client_state.nm_socket);
         return 1;
     }

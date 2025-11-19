@@ -172,6 +172,7 @@ extern int enable_colors;
 #define ERR_REQUEST_NOT_FOUND 123
 #define ERR_ALREADY_HAS_ACCESS 124
 #define ERR_INVALID_FILENAME 125
+#define ERR_USERNAME_TAKEN 126
 
 // ============ MESSAGE STRUCTURE ============
 typedef struct {

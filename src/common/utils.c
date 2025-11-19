@@ -192,6 +192,7 @@ char* get_error_message(int error_code) {
         case ERR_REQUEST_NOT_FOUND: return "Access request not found";
         case ERR_ALREADY_HAS_ACCESS: return "Already has access";
         case ERR_INVALID_FILENAME: return "Invalid filename: reserved extension not allowed";
+        case ERR_USERNAME_TAKEN: return "Username is already in use";
         default: return "Unknown error";
     }
 }
