@@ -862,9 +862,15 @@ void* handle_client_connection(void* arg) {
             }
             
             case OP_EXEC: {
-                // Execute file - fetch content from SS and execute
+                // EXEC operation - executes file content as bash script on Name Server
+                snprintf(details, sizeof(details), "file=%s user=%s", header.filename, header.username);
+                log_operation("NM", "INFO", "EXEC_REQUEST", header.username, client_ip, client_port, details, 0);
+                
+                // Find file in registry
                 FileMetadata* file = nm_find_file(header.filename);
                 if (!file) {
+                    result_code = ERR_FILE_NOT_FOUND;
+                    log_message("NM", "ERROR", "EXEC failed: File not found");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_FILE_NOT_FOUND;
                     header.data_length = 0;
@@ -872,9 +878,14 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
-                // Check permission
+                // Check read permission (user needs read access to execute)
                 int perm_result = nm_check_permission(header.filename, header.username, 0);
                 if (perm_result != ERR_SUCCESS) {
+                    result_code = perm_result;
+                    char msg[600];
+                    snprintf(msg, sizeof(msg), "EXEC denied: User '%s' lacks read permission on '%s'", 
+                             header.username, header.filename);
+                    log_message("NM", "WARN", msg);
                     header.msg_type = MSG_ERROR;
                     header.error_code = perm_result;
                     header.data_length = 0;
@@ -882,8 +893,11 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
+                // Find storage server hosting the file
                 StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
-                if (!ss) {
+                if (!ss || !ss->is_active) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "EXEC failed: Storage server unavailable");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -891,9 +905,16 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
-                // Fetch file content from SS
+                // Fetch file content from Storage Server
+                char fetch_msg[512];
+                snprintf(fetch_msg, sizeof(fetch_msg), "Fetching '%s' from SS #%d for execution", 
+                         header.filename, file->ss_id);
+                log_message("NM", "INFO", fetch_msg);
+                
                 int ss_socket = connect_to_server(ss->ip, ss->client_port);
                 if (ss_socket < 0) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "EXEC failed: Cannot connect to storage server");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -910,6 +931,8 @@ void* handle_client_connection(void* arg) {
                 close(ss_socket);
                 
                 if (ss_header.msg_type != MSG_RESPONSE || !file_content) {
+                    result_code = ERR_FILE_OPERATION_FAILED;
+                    log_message("NM", "ERROR", "EXEC failed: Could not read file from storage server");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_FILE_OPERATION_FAILED;
                     header.data_length = 0;
@@ -918,9 +941,24 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
-                // Execute commands and capture output
+                // Log script content size
+                char content_msg[512];
+                snprintf(content_msg, sizeof(content_msg), 
+                         "⚙ Executing bash script | File: '%s' | User: '%s' | Size: %zu bytes | ON NAME SERVER", 
+                         header.filename, header.username, strlen(file_content));
+                log_message("NM", "INFO", content_msg);
+                
+                // Execute file content as bash script on Name Server
+                // Security note: popen executes in shell context - assumes trusted scripts
                 FILE* pipe = popen(file_content, "r");
                 if (!pipe) {
+                    result_code = ERR_FILE_OPERATION_FAILED;
+                    char err_msg[512];
+                    snprintf(err_msg, sizeof(err_msg), 
+                             "EXEC failed: popen error for '%s' (errno: %d)", 
+                             header.filename, errno);
+                    log_message("NM", "ERROR", err_msg);
+                    
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_FILE_OPERATION_FAILED;
                     header.data_length = 0;
@@ -929,17 +967,40 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
+                // Capture output from script execution
                 char output[BUFFER_SIZE * 4];
+                memset(output, 0, sizeof(output));
                 size_t total = 0;
-                while (fgets(output + total, sizeof(output) - total, pipe) != NULL) {
+                
+                while (total < sizeof(output) - 1 && 
+                       fgets(output + total, sizeof(output) - total, pipe) != NULL) {
                     total = strlen(output);
                 }
-                pclose(pipe);
                 
+                int exit_status = pclose(pipe);
+                int exit_code = WEXITSTATUS(exit_status);
+                
+                // Log execution completion
+                char exec_result_msg[512];
+                snprintf(exec_result_msg, sizeof(exec_result_msg), 
+                         "✓ EXEC completed | File: '%s' | User: '%s' | Exit code: %d | Output size: %zu bytes", 
+                         header.filename, header.username, exit_code, strlen(output));
+                log_message("NM", exit_code == 0 ? "INFO" : "WARN", exec_result_msg);
+                
+                // Send output back to client
+                result_code = ERR_SUCCESS;
                 header.msg_type = MSG_RESPONSE;
                 header.error_code = ERR_SUCCESS;
                 header.data_length = strlen(output);
                 send_message(client_fd, &header, output);
+                
+                // Log response sent
+                char response_details[1024];
+                snprintf(response_details, sizeof(response_details), 
+                         "file=%s exit_code=%d output_bytes=%zu", 
+                         header.filename, exit_code, strlen(output));
+                log_operation("NM", "INFO", "EXEC_RESPONSE", header.username, 
+                             client_ip, client_port, response_details, ERR_SUCCESS);
                 
                 free(file_content);
                 break;

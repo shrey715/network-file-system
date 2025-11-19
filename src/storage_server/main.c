@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
              "Storage Server #%d STARTING\n"
              "  Storage dir: %s\n"
              "  Client Port: %d\n"
-             "  Name Server: %s:%d\n"
+             "  Name Server: %s:%d",
              config.server_id, config.storage_dir, config.client_port,
              argv[1], config.nm_port);
     log_message("SS", "INFO", startup_msg);
@@ -121,17 +121,38 @@ int main(int argc, char* argv[]) {
     // Initialize lock registry
     init_locked_file_registry();
     
-    // Accept client connections
+    // Accept client connections with periodic timeout to check server_running
     while (server_running) {
+        // Use select() to check for incoming connections with timeout
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(client_socket, &readfds);
+        
+        struct timeval timeout;
+        timeout.tv_sec = 1;  // Check server_running every 1 second
+        timeout.tv_usec = 0;
+        
+        int select_result = select(client_socket + 1, &readfds, NULL, NULL, &timeout);
+        
+        if (select_result < 0) {
+            if (errno == EINTR) {
+                // Interrupted by signal - this is normal, just continue to check server_running
+                continue;
+            }
+            // Other error - log and continue
+            log_message("SS", "ERROR", "select() error in accept loop");
+            continue;
+        }
+        
+        if (select_result == 0) {
+            // Timeout - no incoming connection, loop will re-check server_running
+            continue;
+        }
+        
+        // Have an incoming connection
         struct sockaddr_in client_addr;
         socklen_t addr_len = sizeof(client_addr);
         int* client_fd = malloc(sizeof(int));
-        
-        // Set socket timeout to allow checking server_running flag
-        struct timeval tv;
-        tv.tv_sec = 1;
-        tv.tv_usec = 0;
-        setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         
         *client_fd = accept(client_socket, (struct sockaddr*)&client_addr, &addr_len);
         
@@ -151,7 +172,6 @@ int main(int argc, char* argv[]) {
             pthread_detach(thread);
         } else {
             free(client_fd);
-            // Ignore timeout errors (EAGAIN/EWOULDBLOCK) - just check server_running again
         }
     }
     
@@ -160,7 +180,7 @@ int main(int argc, char* argv[]) {
     snprintf(shutdown_msg, sizeof(shutdown_msg),
              "Storage Server #%d SHUTTING DOWN\n"
              "  Closing client socket on port %d\n"
-             "  Cleaning up resources\n"
+             "  Cleaning up resources",
              config.server_id, config.client_port);
     log_message("SS", "INFO", shutdown_msg);
     
