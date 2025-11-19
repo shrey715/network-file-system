@@ -22,28 +22,62 @@ void* handle_client_connection(void* arg) {
     int client_fd = *(int*)arg;
     free(arg);
     
+    // Get client IP and port for logging
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    getpeername(client_fd, (struct sockaddr*)&client_addr, &addr_len);
+    char client_ip[MAX_IP];
+    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+    int client_port = ntohs(client_addr.sin_port);
+    
     MessageHeader header;
     char* payload = NULL;
     char connected_username[MAX_USERNAME] = "";  // Track connected user for cleanup
     
     while (recv_message(client_fd, &header, &payload) > 0) {
         char response_buf[BUFFER_SIZE];
+        char details[1024];
+        const char* operation = "UNKNOWN";
+        int result_code = ERR_SUCCESS;
         
-        // Log operation (pre-formatted message)
+        // Determine operation name
+        switch (header.op_code) {
+            case OP_REGISTER_SS: operation = "SS_REGISTER"; break;
+            case OP_CONNECT_CLIENT: operation = "CLIENT_CONNECT"; break;
+            case OP_DISCONNECT: operation = "CLIENT_DISCONNECT"; break;
+            case OP_VIEW: operation = "VIEW"; break;
+            case OP_READ: operation = "READ"; break;
+            case OP_CREATE: operation = "CREATE"; break;
+            case OP_WRITE: operation = "WRITE"; break;
+            case OP_DELETE: operation = "DELETE"; break;
+            case OP_INFO: operation = "INFO"; break;
+            case OP_LIST: operation = "LIST"; break;
+            case OP_STREAM: operation = "STREAM"; break;
+            case OP_UNDO: operation = "UNDO"; break;
+            case OP_EXEC: operation = "EXEC"; break;
+            case OP_ADDACCESS: operation = "ADD_ACCESS"; break;
+            case OP_REMACCESS: operation = "REMOVE_ACCESS"; break;
+            case OP_MOVE: operation = "MOVE"; break;
+            case OP_CREATEFOLDER: operation = "CREATE_FOLDER"; break;
+            case OP_VIEWFOLDER: operation = "VIEW_FOLDER"; break;
+            case OP_CHECKPOINT: operation = "CHECKPOINT"; break;
+            case OP_VIEWCHECKPOINT: operation = "VIEW_CHECKPOINT"; break;
+            case OP_REVERT: operation = "REVERT"; break;
+            case OP_LISTCHECKPOINTS: operation = "LIST_CHECKPOINTS"; break;
+            case OP_REQUESTACCESS: operation = "REQUEST_ACCESS"; break;
+            case OP_VIEWREQUESTS: operation = "VIEW_REQUESTS"; break;
+            case OP_APPROVEREQUEST: operation = "APPROVE_REQUEST"; break;
+            case OP_DENYREQUEST: operation = "DENY_REQUEST"; break;
+            default: operation = "UNKNOWN"; break;
+        }
+        
+        // Initialize default details based on header content
         if (header.filename[0]) {
-            char logmsg[512];
-            const char* op_name = 
-                header.op_code == OP_VIEW ? "VIEW" :
-                header.op_code == OP_READ ? "READ" :
-                header.op_code == OP_CREATE ? "CREATE" :
-                header.op_code == OP_WRITE ? "WRITE" :
-                header.op_code == OP_DELETE ? "DELETE" :
-                header.op_code == OP_INFO ? "INFO" :
-                header.op_code == OP_LIST ? "LIST" : "OTHER";
-            snprintf(logmsg, sizeof(logmsg), 
-                     "User '%s' operation %s on file '%s'", 
-                     header.username, op_name, header.filename);
-            log_message("NM", "DEBUG", logmsg);
+            snprintf(details, sizeof(details), "file=%s", header.filename);
+        } else if (header.foldername[0]) {
+            snprintf(details, sizeof(details), "folder=%s", header.foldername);
+        } else {
+            details[0] = '\0';
         }
         
         switch (header.op_code) {
@@ -59,18 +93,40 @@ void* handle_client_connection(void* arg) {
                 char ip[MAX_IP];
                 inet_ntop(AF_INET, &addr.sin_addr, ip, sizeof(ip));
                 
+                snprintf(details, sizeof(details), "SS_ID=%d IP=%s NM_Port=%d Client_Port=%d", 
+                        server_id, ip, nm_port, client_port);
+                
+                // Log registration request received
+                log_operation("NM", "INFO", "SS_REGISTER_REQUEST", "", ip, nm_port, details, 0);
+                
                 int result = nm_register_storage_server(server_id, ip, nm_port, client_port);
+                result_code = result;
+                
+                if (result == ERR_SUCCESS) {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg), 
+                             "✓ Storage Server #%d registered | IP=%s | NM_Port=%d | Client_Port=%d", 
+                             server_id, ip, nm_port, client_port);
+                    log_message("NM", "INFO", msg);
+                }
                 
                 header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
                 header.error_code = result;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
+                
+                // Log acknowledgment sent
+                log_operation("NM", result == ERR_SUCCESS ? "INFO" : "ERROR",
+                             "SS_REGISTER_ACK", "", ip, nm_port, details, result);
                 break;
             }
             
             case OP_CONNECT_CLIENT: {
                 // Register client - payload contains username
                 pthread_mutex_lock(&ns_state.lock);
+                
+                // Log connection request
+                log_operation("NM", "INFO", "CLIENT_CONNECT_REQUEST", payload, client_ip, client_port, "Registration attempt", 0);
                 
                 // Check if username is already taken
                 int username_exists = 0;
@@ -84,14 +140,15 @@ void* handle_client_connection(void* arg) {
                 
                 if (username_exists) {
                     pthread_mutex_unlock(&ns_state.lock);
+                    result_code = ERR_USERNAME_TAKEN;
+                    snprintf(details, sizeof(details), "Username '%s' already in use", payload);
+                    
+                    log_message("NM", "WARN", details);
+                    
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_USERNAME_TAKEN;
                     header.data_length = 0;
                     send_message(client_fd, &header, NULL);
-                    
-                    char msg[256];
-                    snprintf(msg, sizeof(msg), "Username '%s' is already in use", payload);
-                    log_message("NM", "WARNING", msg);
                     break;
                 }
                 
@@ -110,10 +167,10 @@ void* handle_client_connection(void* arg) {
                     client->last_activity = time(NULL);
                     ns_state.client_count++;
                     
-                    char msg[256];
-                    snprintf(msg, sizeof(msg), "User '%s' connected from %s", 
-                             client->username, client->ip);
-                    log_message("NM", "INFO", msg);
+                    result_code = ERR_SUCCESS;
+                    snprintf(details, sizeof(details), "✓ Client '%s' registered from %s:%d", 
+                             payload, client_ip, client_port);
+                    log_message("NM", "INFO", details);
                 }
                 pthread_mutex_unlock(&ns_state.lock);
                 
@@ -121,6 +178,9 @@ void* handle_client_connection(void* arg) {
                 header.error_code = ERR_SUCCESS;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
+                
+                // Log successful connection
+                log_operation("NM", "INFO", "CLIENT_CONNECT_SUCCESS", payload, client_ip, client_port, "Client registered", ERR_SUCCESS);
                 break;
             }
             
@@ -228,8 +288,16 @@ void* handle_client_connection(void* arg) {
             }
             
             case OP_CREATE: {
+                snprintf(details, sizeof(details), "file=%s folder=%s", 
+                        header.filename, header.foldername[0] ? header.foldername : "/");
+                
+                // Log request received
+                log_operation("NM", "INFO", "CREATE_REQUEST", header.username, client_ip, client_port, details, 0);
+                
                 // Validate filename - reject reserved extensions
                 if (!is_valid_filename(header.filename)) {
+                    result_code = ERR_INVALID_FILENAME;
+                    log_message("NM", "ERROR", "File creation rejected: Invalid filename (reserved extension)");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_INVALID_FILENAME;
                     header.data_length = 0;
@@ -240,6 +308,8 @@ void* handle_client_connection(void* arg) {
                 // Create file - select SS and forward request
                 int ss_id = nm_select_storage_server();
                 if (ss_id < 0) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "File creation failed: No storage server available");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -249,6 +319,7 @@ void* handle_client_connection(void* arg) {
                 
                 StorageServerInfo* ss = nm_find_storage_server(ss_id);
                 if (!ss) {
+                    result_code = ERR_SS_UNAVAILABLE;
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -256,9 +327,16 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
+                char ss_details[512];
+                snprintf(ss_details, sizeof(ss_details), "Forwarding CREATE to SS #%d at %s:%d", 
+                         ss_id, ss->ip, ss->client_port);
+                log_message("NM", "INFO", ss_details);
+                
                 // Connect to SS and forward create request
                 int ss_socket = connect_to_server(ss->ip, ss->client_port);
                 if (ss_socket < 0) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "Failed to connect to storage server");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -274,20 +352,40 @@ void* handle_client_connection(void* arg) {
                 recv_message(ss_socket, &ss_header, &ss_response);
                 close(ss_socket);
                 
+                result_code = ss_header.error_code;
                 if (ss_header.msg_type == MSG_ACK) {
                     // Register file in NM (with folder path from header)
                     nm_register_file(header.filename, header.foldername, header.username, ss_id);
+                    char tmp[2048];
+                    snprintf(tmp, sizeof(tmp), "✓ File '%s' created by '%s' on SS #%d", 
+                             header.filename, header.username, ss_id);
+                    log_message("NM", "INFO", tmp);
+                    
+                    snprintf(tmp, sizeof(tmp), "%s | SS_ID=%d", details, ss_id);
+                    strncpy(details, tmp, sizeof(details) - 1);
                 }
                 
                 send_message(client_fd, &ss_header, ss_response);
+                
+                // Log response sent
+                log_operation("NM", result_code == ERR_SUCCESS ? "INFO" : "ERROR",
+                             "CREATE_RESPONSE", header.username, client_ip, client_port, details, result_code);
+                
                 if (ss_response) free(ss_response);
                 break;
             }
             
             case OP_DELETE: {
+                snprintf(details, sizeof(details), "file=%s", header.filename);
+                
+                // Log request received
+                log_operation("NM", "INFO", "DELETE_REQUEST", header.username, client_ip, client_port, details, 0);
+                
                 // Check ownership
                 FileMetadata* file = nm_find_file(header.filename);
                 if (!file) {
+                    result_code = ERR_FILE_NOT_FOUND;
+                    log_message("NM", "ERROR", "Delete failed: File not found");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_FILE_NOT_FOUND;
                     header.data_length = 0;
@@ -296,6 +394,11 @@ void* handle_client_connection(void* arg) {
                 }
                 
                 if (strcmp(file->owner, header.username) != 0) {
+                    result_code = ERR_NOT_OWNER;
+                    char msg[600];
+                    snprintf(msg, sizeof(msg), "Delete denied: User '%s' not owner of '%s'", 
+                             header.username, header.filename);
+                    log_message("NM", "WARN", msg);
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_NOT_OWNER;
                     header.data_length = 0;
@@ -306,6 +409,8 @@ void* handle_client_connection(void* arg) {
                 // Forward to SS
                 StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
                 if (!ss) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "Delete failed: Storage server unavailable");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -313,8 +418,15 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
+                char ss_msg[256];
+                snprintf(ss_msg, sizeof(ss_msg), "Forwarding DELETE to SS #%d at %s:%d", 
+                         file->ss_id, ss->ip, ss->client_port);
+                log_message("NM", "INFO", ss_msg);
+                
                 int ss_socket = connect_to_server(ss->ip, ss->client_port);
                 if (ss_socket < 0) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "Failed to connect to storage server");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -330,11 +442,21 @@ void* handle_client_connection(void* arg) {
                 recv_message(ss_socket, &ss_header, &ss_response);
                 close(ss_socket);
                 
+                result_code = ss_header.error_code;
                 if (ss_header.msg_type == MSG_ACK) {
                     nm_delete_file(header.filename);
+                    char msg[600];
+                    snprintf(msg, sizeof(msg), "✓ File '%s' deleted by '%s' from SS #%d", 
+                             header.filename, header.username, file->ss_id);
+                    log_message("NM", "INFO", msg);
                 }
                 
                 send_message(client_fd, &ss_header, ss_response);
+                
+                // Log response sent
+                log_operation("NM", result_code == ERR_SUCCESS ? "INFO" : "ERROR",
+                             "DELETE_RESPONSE", header.username, client_ip, client_port, details, result_code);
+                
                 if (ss_response) free(ss_response);
                 break;
             }
@@ -343,9 +465,16 @@ void* handle_client_connection(void* arg) {
             case OP_WRITE:
             case OP_STREAM:
             case OP_UNDO: {
+                snprintf(details, sizeof(details), "file=%s", header.filename);
+                
+                // Log request received
+                log_operation("NM", "INFO", operation, header.username, client_ip, client_port, details, 0);
+                
                 // Return SS information for direct connection
                 FileMetadata* file = nm_find_file(header.filename);
                 if (!file) {
+                    result_code = ERR_FILE_NOT_FOUND;
+                    log_message("NM", "ERROR", "Operation failed: File not found");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_FILE_NOT_FOUND;
                     header.data_length = 0;
@@ -357,6 +486,11 @@ void* handle_client_connection(void* arg) {
                 int need_write = (header.op_code == OP_WRITE || header.op_code == OP_UNDO);
                 int perm_result = nm_check_permission(header.filename, header.username, need_write);
                 if (perm_result != ERR_SUCCESS) {
+                    result_code = perm_result;
+                    char msg[600];
+                    snprintf(msg, sizeof(msg), "Permission denied for '%s' on file '%s'", 
+                             header.username, header.filename);
+                    log_message("NM", "WARN", msg);
                     header.msg_type = MSG_ERROR;
                     header.error_code = perm_result;
                     header.data_length = 0;
@@ -366,6 +500,8 @@ void* handle_client_connection(void* arg) {
                 
                 StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
                 if (!ss) {
+                    result_code = ERR_SS_UNAVAILABLE;
+                    log_message("NM", "ERROR", "Storage server unavailable");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
@@ -374,11 +510,24 @@ void* handle_client_connection(void* arg) {
                 }
                 
                 // Send SS info to client
+                result_code = ERR_SUCCESS;
+                char tmp[2048];
+                snprintf(tmp, sizeof(tmp), "%s | SS=#%d at %s:%d", details, file->ss_id, ss->ip, ss->client_port);
+                strncpy(details, tmp, sizeof(details) - 1);
+                
+                char msg[600];
+                snprintf(msg, sizeof(msg), "Directing client '%s' to SS #%d for %s operation on '%s'", 
+                         header.username, file->ss_id, operation, header.filename);
+                log_message("NM", "INFO", msg);
+                
                 snprintf(response_buf, sizeof(response_buf), "%s:%d", ss->ip, ss->client_port);
                 header.msg_type = MSG_RESPONSE;
                 header.error_code = ERR_SUCCESS;
                 header.data_length = strlen(response_buf);
                 send_message(client_fd, &header, response_buf);
+                
+                // Log response sent
+                log_operation("NM", "INFO", operation, header.username, client_ip, client_port, details, result_code);
                 break;
             }
             
@@ -1242,8 +1391,15 @@ void* handle_client_connection(void* arg) {
                 header.error_code = ERR_INVALID_COMMAND;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
+                result_code = ERR_INVALID_COMMAND;
+                snprintf(details, sizeof(details), "Invalid operation code");
                 break;
         }
+        
+        // Log the completed operation
+        log_operation("NM", result_code == ERR_SUCCESS ? "INFO" : "ERROR",
+                     operation, header.username[0] ? header.username : connected_username, 
+                     client_ip, client_port, details, result_code);
         
         if (payload) {
             free(payload);

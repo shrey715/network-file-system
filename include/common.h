@@ -202,6 +202,9 @@ void safe_close_socket(int* sockfd);
 
 // ============ LOGGING FUNCTIONS ============
 void log_message(const char* component, const char* level, const char* message);
+void log_operation(const char* component, const char* level, const char* operation,
+                   const char* username, const char* ip, int port, 
+                   const char* details, int error_code);
 
 // ============ UTILITY FUNCTIONS ============
 int visual_strlen(const char* str);  // Calculate visual width excluding ANSI codes

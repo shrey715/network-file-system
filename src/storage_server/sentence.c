@@ -805,7 +805,7 @@ void send_simple_response(int client_fd, int msg_type, int error_code) {
  * handle_ss_create
  * @brief Handler for OP_SS_CREATE operation.
  */
-void handle_ss_create(int client_fd, MessageHeader* header, const char* payload) {
+int handle_ss_create(int client_fd, MessageHeader* header, const char* payload) {
     // Construct full path from foldername and filename
     char fullpath[MAX_PATH];
     if (header->foldername[0]) {
@@ -816,32 +816,80 @@ void handle_ss_create(int client_fd, MessageHeader* header, const char* payload)
         fullpath[sizeof(fullpath) - 1] = '\0';
     }
     
+    // Log operation start
+    char details[1200];
+    snprintf(details, sizeof(details), "file=%s owner=%s", fullpath, payload ? payload : "unknown");
+    log_message("SS", "INFO", details);
+    
     int result = ss_create_file(fullpath, payload ? payload : "unknown");
+    
+    // Log completion
+    if (result == ERR_SUCCESS) {
+        char msg[1200];
+        snprintf(msg, sizeof(msg), "✓ File '%s' created successfully", fullpath);
+        log_message("SS", "INFO", msg);
+    } else {
+        char msg[1200];
+        snprintf(msg, sizeof(msg), "✗ File creation failed for '%s': %s", 
+                 fullpath, get_error_message(result));
+        log_message("SS", "ERROR", msg);
+    }
+    
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
+    return result;
 }
 
 /**
  * handle_ss_delete
  * @brief Handler for OP_SS_DELETE operation.
  */
-void handle_ss_delete(int client_fd, MessageHeader* header) {
+int handle_ss_delete(int client_fd, MessageHeader* header) {
+    // Log delete request
+    char details[1200];
+    snprintf(details, sizeof(details), "file=%s", header->filename);
+    log_message("SS", "INFO", details);
+    
     int result = ss_delete_file(header->filename);
+    
+    // Log result
+    if (result == ERR_SUCCESS) {
+        char msg[1200];
+        snprintf(msg, sizeof(msg), "✓ File '%s' deleted successfully", header->filename);
+        log_message("SS", "INFO", msg);
+    } else {
+        char msg[1200];
+        snprintf(msg, sizeof(msg), "✗ File deletion failed for '%s': %s", 
+                 header->filename, get_error_message(result));
+        log_message("SS", "ERROR", msg);
+    }
+    
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
+    return result;
 }
 
 /**
  * handle_ss_read
  * @brief Handler for OP_SS_READ operation.
  */
-void handle_ss_read(int client_fd, MessageHeader* header) {
+int handle_ss_read(int client_fd, MessageHeader* header) {
+    // Log read request
+    char details[1200];
+    snprintf(details, sizeof(details), "file=%s user=%s", header->filename, header->username);
+    log_message("SS", "INFO", details);
+    
     char* content = NULL;
     int result = ss_read_file(header->filename, &content);
     
     if (result == ERR_SUCCESS) {
+        char msg[1200];
+        snprintf(msg, sizeof(msg), "✓ File '%s' read successfully (%zu bytes)", 
+                 header->filename, content ? strlen(content) : 0);
+        log_message("SS", "INFO", msg);
+        
         MessageHeader resp;
         memset(&resp, 0, sizeof(resp));
         resp.msg_type = MSG_RESPONSE;
@@ -852,6 +900,7 @@ void handle_ss_read(int client_fd, MessageHeader* header) {
     } else {
         send_simple_response(client_fd, MSG_ERROR, result);
     }
+    return result;
 }
 
 /**
@@ -1010,39 +1059,88 @@ void* handle_client_request(void* arg) {
     int client_fd = *(int*)arg;
     free(arg);
     
+    // Get client IP and port for logging
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    char client_ip[MAX_IP] = "unknown";
+    int client_port = 0;
+    if (getpeername(client_fd, (struct sockaddr*)&client_addr, &addr_len) == 0) {
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+        client_port = ntohs(client_addr.sin_port);
+    }
+    
     MessageHeader header;
     char* payload = NULL;
     int keep_alive = 1;  // Keep connection open for WRITE sessions
     
     // Handle multiple requests on same connection
     while (keep_alive && recv_message(client_fd, &header, &payload) > 0) {
+        const char* operation = "UNKNOWN";
+        char details[1200];
+        int result_code = ERR_SUCCESS;
+        
+        // Determine operation name
+        switch (header.op_code) {
+            case OP_SS_CREATE: operation = "CREATE"; break;
+            case OP_SS_DELETE: operation = "DELETE"; break;
+            case OP_SS_READ: operation = "READ"; break;
+            case OP_SS_WRITE_LOCK: operation = "WRITE_LOCK"; break;
+            case OP_SS_WRITE_WORD: operation = "WRITE_WORD"; break;
+            case OP_SS_WRITE_UNLOCK: operation = "WRITE_UNLOCK"; break;
+            case OP_STREAM: operation = "STREAM"; break;
+            case OP_UNDO: operation = "UNDO"; break;
+            case OP_INFO: operation = "INFO"; break;
+            case OP_VIEW: operation = "VIEW"; break;
+            case OP_SS_MOVE: operation = "MOVE"; break;
+            case OP_SS_CHECKPOINT: operation = "CHECKPOINT"; break;
+            case OP_SS_VIEWCHECKPOINT: operation = "VIEW_CHECKPOINT"; break;
+            case OP_SS_REVERT: operation = "REVERT"; break;
+            case OP_SS_LISTCHECKPOINTS: operation = "LIST_CHECKPOINTS"; break;
+            case OP_EXEC: operation = "EXEC"; break;
+            default: operation = "UNKNOWN"; break;
+        }
+        
+        // Initialize default details
+        if (header.filename[0]) {
+            snprintf(details, sizeof(details), "file=%s", header.filename);
+        } else {
+            details[0] = '\0';
+        }
+        
+        // Log request received
+        log_operation("SS", "INFO", operation, header.username[0] ? header.username : "system",
+                     client_ip, client_port, details, 0);
+        
         switch (header.op_code) {
             case OP_SS_CREATE:
-                handle_ss_create(client_fd, &header, payload);
+                result_code = handle_ss_create(client_fd, &header, payload);
                 keep_alive = 0;  // Single-shot operation
                 break;
             
             case OP_SS_DELETE:
-                handle_ss_delete(client_fd, &header);
+                result_code = handle_ss_delete(client_fd, &header);
                 keep_alive = 0;
                 break;
             
             case OP_SS_READ:
-                handle_ss_read(client_fd, &header);
+                result_code = handle_ss_read(client_fd, &header);
                 keep_alive = 0;
                 break;
             
             case OP_SS_WRITE_LOCK:
+                result_code = ERR_SUCCESS;  // Will be handled by write_lock handler
                 handle_ss_write_lock(client_fd, &header);
                 // Keep connection alive for subsequent WRITE_WORD commands
                 break;
             
             case OP_SS_WRITE_WORD:
+                result_code = ERR_SUCCESS;  // Will be handled by write_word handler
                 handle_ss_write_word(client_fd, &header, payload);
                 // Keep connection alive for more WRITE_WORD or WRITE_UNLOCK
                 break;
             
             case OP_SS_WRITE_UNLOCK:
+                result_code = ERR_SUCCESS;  // Will be handled by write_unlock handler
                 handle_ss_write_unlock(client_fd, &header);
                 keep_alive = 0;  // End of WRITE session
                 break;
@@ -1069,9 +1167,16 @@ void* handle_client_request(void* arg) {
             
             default:
                 // Unknown operation - close connection
+                result_code = ERR_INVALID_COMMAND;
+                snprintf(details, sizeof(details), "Invalid operation code");
                 keep_alive = 0;
                 break;
         }
+        
+        // Log the completed operation
+        log_operation("SS", result_code == ERR_SUCCESS ? "INFO" : "ERROR",
+                     operation, header.username[0] ? header.username : "system",
+                     client_ip, client_port, details, result_code);
         
         if (payload) {
             free(payload);

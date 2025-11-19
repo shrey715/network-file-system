@@ -55,14 +55,20 @@ int main(int argc, char* argv[]) {
     // Wait for ACK
     char* response;
     recv_message(nm_socket, &header, &response);
+    
+    char reg_details[512];
+    snprintf(reg_details, sizeof(reg_details), 
+             "SS_ID=%d Client_Port=%d NM_Port=%d NM=%s:%d",
+             config.server_id, config.client_port, config.nm_port, 
+             config.nm_ip, config.nm_port);
+    
     if (header.msg_type == MSG_ACK) {
-        char reg_msg[256];
-        snprintf(reg_msg, sizeof(reg_msg), 
-                 "Registered with Name Server | Server ID: %d | Client Port: %d | NM Port: %d",
-                 config.server_id, config.client_port, config.nm_port);
-        log_message("SS", "INFO", reg_msg);
+        log_operation("SS", "INFO", "SS_REGISTER", "system", 
+                     config.nm_ip, config.nm_port, reg_details, ERR_SUCCESS);
     } else {
-        log_message("SS", "ERROR", "Registration failed - Name Server rejected");
+        log_operation("SS", "ERROR", "SS_REGISTER", "system",
+                     config.nm_ip, config.nm_port, reg_details, 
+                     header.error_code);
         close(nm_socket);
         return 1;
     }
@@ -96,6 +102,16 @@ int main(int argc, char* argv[]) {
         *client_fd = accept(client_socket, (struct sockaddr*)&client_addr, &addr_len);
         
         if (*client_fd >= 0) {
+            // Log incoming connection
+            char client_ip[MAX_IP];
+            inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+            int client_port = ntohs(client_addr.sin_port);
+            
+            char conn_details[256];
+            snprintf(conn_details, sizeof(conn_details), "New connection accepted");
+            log_operation("SS", "INFO", "CLIENT_CONNECT", "unknown", 
+                         client_ip, client_port, conn_details, ERR_SUCCESS);
+            
             pthread_t thread;
             pthread_create(&thread, NULL, handle_client_request, client_fd);
             pthread_detach(thread);

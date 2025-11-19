@@ -103,9 +103,9 @@ void* handle_client_request(void* arg);
 
 // Request handler helpers (internal)
 void send_simple_response(int client_fd, int msg_type, int error_code);
-void handle_ss_create(int client_fd, MessageHeader* header, const char* payload);
-void handle_ss_delete(int client_fd, MessageHeader* header);
-void handle_ss_read(int client_fd, MessageHeader* header);
+int handle_ss_create(int client_fd, MessageHeader* header, const char* payload);
+int handle_ss_delete(int client_fd, MessageHeader* header);
+int handle_ss_read(int client_fd, MessageHeader* header);
 void handle_ss_write_lock(int client_fd, MessageHeader* header);
 void handle_ss_write_word(int client_fd, MessageHeader* header, const char* payload);
 void handle_ss_write_unlock(int client_fd, MessageHeader* header);
