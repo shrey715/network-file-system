@@ -599,8 +599,44 @@ int nm_move_file(const char* filename, const char* new_folder_path) {
         }
     }
     
+    // Construct old and new full paths for Trie/cache update
+    char old_full_path[MAX_FULL_PATH];
+    char new_full_path[MAX_FULL_PATH];
+    
+    if (strlen(file->folder_path) > 0) {
+        snprintf(old_full_path, sizeof(old_full_path), "%s/%s", file->folder_path, file->filename);
+    } else {
+        snprintf(old_full_path, sizeof(old_full_path), "%s", file->filename);
+    }
+    
+    if (new_folder_path && strlen(new_folder_path) > 0) {
+        snprintf(new_full_path, sizeof(new_full_path), "%s/%s", new_folder_path, file->filename);
+    } else {
+        snprintf(new_full_path, sizeof(new_full_path), "%s", file->filename);
+    }
+    
+    // Find the file index for Trie/cache operations
+    int file_index = file - ns_state.files;
+    
+    // Remove old path from Trie and cache
+    if (ns_state.file_trie_root) {
+        trie_delete(ns_state.file_trie_root, old_full_path);
+    }
+    if (ns_state.file_cache) {
+        cache_invalidate(ns_state.file_cache, old_full_path);
+    }
+    
+    // Update folder path
     strcpy(file->folder_path, new_folder_path ? new_folder_path : "");
     file->last_modified = time(NULL);
+    
+    // Add new path to Trie and cache
+    if (ns_state.file_trie_root) {
+        trie_insert(ns_state.file_trie_root, new_full_path, file_index);
+    }
+    if (ns_state.file_cache) {
+        cache_put(ns_state.file_cache, new_full_path, file_index);
+    }
     
     pthread_mutex_unlock(&ns_state.lock);
     save_state();

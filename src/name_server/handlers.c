@@ -644,10 +644,23 @@ void* handle_client_connection(void* arg) {
             }
             
             case OP_VIEWFOLDER: {
+                // Normalize folder name by removing trailing slash
+                char normalized_folder[MAX_FOLDERNAME];
+                if (header.foldername[0]) {
+                    strncpy(normalized_folder, header.foldername, MAX_FOLDERNAME - 1);
+                    normalized_folder[MAX_FOLDERNAME - 1] = '\0';
+                    
+                    // Remove trailing slash
+                    size_t len = strlen(normalized_folder);
+                    if (len > 0 && normalized_folder[len - 1] == '/') {
+                        normalized_folder[len - 1] = '\0';
+                    }
+                }
+                
                 // List folder contents
                 char folder_contents[BUFFER_SIZE * 2];
                 int result = nm_list_folder_contents(
-                    header.foldername[0] ? header.foldername : NULL,
+                    header.foldername[0] ? normalized_folder : NULL,
                     header.username,
                     folder_contents,
                     sizeof(folder_contents)

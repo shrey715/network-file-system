@@ -979,6 +979,24 @@ void handle_ss_undo(int client_fd, MessageHeader* header) {
 }
 
 /**
+ * handle_ss_move
+ * @brief Handler for OP_SS_MOVE operation.
+ */
+void handle_ss_move(int client_fd, MessageHeader* header, const char* payload) {
+    if (!payload) {
+        send_simple_response(client_fd, MSG_ERROR, ERR_FILE_OPERATION_FAILED);
+        return;
+    }
+    
+    // header->filename contains old path
+    // payload contains new path
+    int result = ss_move_file(header->filename, payload);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
  * handle_client_request
  * @brief Thread entrypoint for per-client connections to the Storage Server.
  *
@@ -1041,6 +1059,11 @@ void* handle_client_request(void* arg) {
             
             case OP_UNDO:
                 handle_ss_undo(client_fd, &header);
+                keep_alive = 0;
+                break;
+            
+            case OP_SS_MOVE:
+                handle_ss_move(client_fd, &header, payload);
                 keep_alive = 0;
                 break;
             
