@@ -1,8 +1,27 @@
 #include "common.h"
 #include "storage_server.h"
+#include <signal.h>
 
 // Global configuration
 SSConfig config;
+
+// Flag for graceful shutdown
+volatile sig_atomic_t server_running = 1;
+
+/**
+ * signal_handler
+ * @brief Handle shutdown signals gracefully
+ */
+void signal_handler(int signum) {
+    if (signum == SIGINT || signum == SIGTERM) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), 
+                 "Storage Server #%d received shutdown signal (%d) - shutting down gracefully", 
+                 config.server_id, signum);
+        log_message("SS", "WARN", msg);
+        server_running = 0;
+    }
+}
 
 int main(int argc, char* argv[]) {
     if (argc != 5) {
@@ -16,6 +35,10 @@ int main(int argc, char* argv[]) {
     config.client_port = atoi(argv[3]);
     config.server_id = atoi(argv[4]);
     
+    // Set up signal handlers for graceful shutdown
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    
     // Set up storage directory
     snprintf(config.storage_dir, sizeof(config.storage_dir), 
              "data/ss_%d", config.server_id);
@@ -24,8 +47,12 @@ int main(int argc, char* argv[]) {
     
     char startup_msg[1024];
     snprintf(startup_msg, sizeof(startup_msg), 
-             "Storage Server %d starting | Storage dir: %s", 
-             config.server_id, config.storage_dir);
+             "Storage Server #%d STARTING\n"
+             "  Storage dir: %s\n"
+             "  Client Port: %d\n"
+             "  Name Server: %s:%d\n"
+             config.server_id, config.storage_dir, config.client_port,
+             argv[1], config.nm_port);
     log_message("SS", "INFO", startup_msg);
     
     // Register with Name Server
@@ -95,10 +122,17 @@ int main(int argc, char* argv[]) {
     init_locked_file_registry();
     
     // Accept client connections
-    while (1) {
+    while (server_running) {
         struct sockaddr_in client_addr;
         socklen_t addr_len = sizeof(client_addr);
         int* client_fd = malloc(sizeof(int));
+        
+        // Set socket timeout to allow checking server_running flag
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+        setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        
         *client_fd = accept(client_socket, (struct sockaddr*)&client_addr, &addr_len);
         
         if (*client_fd >= 0) {
@@ -117,11 +151,27 @@ int main(int argc, char* argv[]) {
             pthread_detach(thread);
         } else {
             free(client_fd);
+            // Ignore timeout errors (EAGAIN/EWOULDBLOCK) - just check server_running again
         }
     }
+    
+    // Graceful shutdown
+    char shutdown_msg[512];
+    snprintf(shutdown_msg, sizeof(shutdown_msg),
+             "Storage Server #%d SHUTTING DOWN\n"
+             "  Closing client socket on port %d\n"
+             "  Cleaning up resources\n"
+             config.server_id, config.client_port);
+    log_message("SS", "INFO", shutdown_msg);
     
     close(nm_socket);
     close(client_socket);
     cleanup_locked_file_registry();
+    
+    char final_msg[256];
+    snprintf(final_msg, sizeof(final_msg), 
+             "✓ Storage Server #%d shutdown complete", config.server_id);
+    log_message("SS", "INFO", final_msg);
+    
     return 0;
 }

@@ -1184,6 +1184,13 @@ void* handle_client_request(void* arg) {
         }
     }
     
+    // Log client disconnection
+    char disconnect_msg[512];
+    snprintf(disconnect_msg, sizeof(disconnect_msg), 
+             "Client connection closed from %s:%d", client_ip, client_port);
+    log_operation("SS", "INFO", "CLIENT_DISCONNECT", "system",
+                 client_ip, client_port, disconnect_msg, ERR_SUCCESS);
+    
     close(client_fd);
     return NULL;
 }

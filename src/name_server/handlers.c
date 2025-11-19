@@ -1431,8 +1431,9 @@ void* handle_client_connection(void* arg) {
  * handle_ss_connection
  * @brief Thread entry point to handle connections from a Storage Server.
  *
- * Currently handles simple heartbeat messages and acknowledges them. This
- * function can be extended to process other NM<->SS control messages.
+ * This function handles the NM-side connection to a Storage Server for control
+ * messages like heartbeats. It tracks which SS is connected and logs when the
+ * connection is lost, marking the SS as inactive.
  *
  * @param arg Pointer to an allocated int containing the accepted socket fd.
  *            The function takes ownership and frees it.
@@ -1442,6 +1443,40 @@ void* handle_ss_connection(void* arg) {
     int ss_fd = *(int*)arg;
     free(arg);
     
+    // Get SS IP and port for tracking
+    struct sockaddr_in ss_addr;
+    socklen_t addr_len = sizeof(ss_addr);
+    char ss_ip[MAX_IP] = "unknown";
+    int ss_port = 0;
+    
+    if (getpeername(ss_fd, (struct sockaddr*)&ss_addr, &addr_len) == 0) {
+        inet_ntop(AF_INET, &ss_addr.sin_addr, ss_ip, sizeof(ss_ip));
+        ss_port = ntohs(ss_addr.sin_port);
+    }
+    
+    // Find which SS this is by matching IP
+    int ss_id = -1;
+    char ss_info[256] = "";
+    
+    pthread_mutex_lock(&ns_state.lock);
+    for (int i = 0; i < ns_state.ss_count; i++) {
+        if (strcmp(ns_state.storage_servers[i].ip, ss_ip) == 0) {
+            ss_id = ns_state.storage_servers[i].server_id;
+            snprintf(ss_info, sizeof(ss_info), "SS #%d at %s:%d", 
+                     ss_id, ss_ip, ns_state.storage_servers[i].client_port);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&ns_state.lock);
+    
+    // Log SS connection established
+    if (ss_id >= 0) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Control connection established with %s", ss_info);
+        log_operation("NM", "INFO", "SS_CONTROL_CONNECT", "system", 
+                     ss_ip, ss_port, msg, ERR_SUCCESS);
+    }
+    
     // Handle heartbeats and other SS messages
     MessageHeader header;
     char* payload = NULL;
@@ -1449,7 +1484,20 @@ void* handle_ss_connection(void* arg) {
     while (recv_message(ss_fd, &header, &payload) > 0) {
         if (header.op_code == OP_HEARTBEAT) {
             // Update last heartbeat time
-            // Implementation depends on how you track SS connections
+            pthread_mutex_lock(&ns_state.lock);
+            for (int i = 0; i < ns_state.ss_count; i++) {
+                if (ns_state.storage_servers[i].server_id == ss_id) {
+                    ns_state.storage_servers[i].last_heartbeat = time(NULL);
+                    
+                    char hb_msg[256];
+                    snprintf(hb_msg, sizeof(hb_msg), "Heartbeat received from SS #%d", ss_id);
+                    log_operation("NM", "DEBUG", "SS_HEARTBEAT", "system",
+                                 ss_ip, ss_port, hb_msg, ERR_SUCCESS);
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&ns_state.lock);
+            
             header.msg_type = MSG_ACK;
             send_message(ss_fd, &header, NULL);
         }
@@ -1458,6 +1506,42 @@ void* handle_ss_connection(void* arg) {
             free(payload);
             payload = NULL;
         }
+    }
+    
+    // Storage Server disconnected - log it and mark as inactive
+    if (ss_id >= 0) {
+        pthread_mutex_lock(&ns_state.lock);
+        for (int i = 0; i < ns_state.ss_count; i++) {
+            if (ns_state.storage_servers[i].server_id == ss_id) {
+                int was_active = ns_state.storage_servers[i].is_active;
+                ns_state.storage_servers[i].is_active = 0;
+                
+                if (was_active) {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg), 
+                             "✗ Storage Server #%d connection LOST | IP=%s | Client_Port=%d", 
+                             ss_id, ss_ip, ns_state.storage_servers[i].client_port);
+                    log_message("NM", "WARN", msg);
+                    
+                    // Also log detailed operation
+                    char details[512];
+                    snprintf(details, sizeof(details), 
+                             "SS_ID=%d IP=%s Client_Port=%d | %d files affected", 
+                             ss_id, ss_ip, ns_state.storage_servers[i].client_port,
+                             ns_state.storage_servers[i].file_count);
+                    log_operation("NM", "WARN", "SS_DISCONNECT", "system", 
+                                 ss_ip, ss_port, details, ERR_SUCCESS);
+                }
+                break;
+            }
+        }
+        pthread_mutex_unlock(&ns_state.lock);
+    } else {
+        // Unknown SS disconnected
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Unknown Storage Server disconnected from %s:%d", 
+                 ss_ip, ss_port);
+        log_message("NM", "WARN", msg);
     }
     
     close(ss_fd);
