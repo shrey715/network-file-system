@@ -891,6 +891,27 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
         current = current->next;
     }
     
+    // Decode <NL> tokens back to actual newlines
+    char* decoded_content = (char*)malloc(strlen(final_content) + 1);
+    if (!decoded_content) {
+        free(final_content);
+        free_sentence_list(current_list);
+        remove_lock_by_node(filename, locked_node);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    
+    const char* src = final_content;
+    char* dst = decoded_content;
+    while (*src) {
+        if (strncmp(src, "<NL>", 4) == 0) {
+            *dst++ = '\n';
+            src += 4;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+    
     // Save undo snapshot before overwriting file
     if (ss_save_undo(filename) != ERR_SUCCESS) {
         char msg[256];
@@ -901,9 +922,10 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
         // Continue with write despite undo failure
     }
     
-    // Write back properly formatted content
-    int write_result = write_file_content(filepath, final_content);
+    // Write back properly formatted content with decoded newlines
+    int write_result = write_file_content(filepath, decoded_content);
     
+    free(decoded_content);
     free(final_content);
     free_sentence_list(current_list);
     

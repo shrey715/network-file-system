@@ -1,6 +1,8 @@
 #include "common.h"
 #include "client.h"
 #include <ctype.h>
+#include <unistd.h>
+#include <termios.h>
 
 /**
  * send_nm_request_and_get_response
@@ -323,154 +325,218 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
         return header.error_code;
     }
     
-    PRINT_WARN("Sentence locked. Enter word modifications (word_index content), then ETIRW:");
-    printf("  Format: " ANSI_CYAN "<word_index> <content>" ANSI_RESET "\n");
-    printf("  Type ETIRW when done.\n");
+    printf(ANSI_BOLD ANSI_CYAN "Interactive Edit Mode" ANSI_RESET "\n");
+    printf("  • Enter: " ANSI_YELLOW "word_index<space>content" ANSI_RESET "\n");
+    printf("  • " ANSI_GREEN "ENTER" ANSI_RESET " = newline in content\n");
+    printf("  • " ANSI_GREEN "Ctrl+N" ANSI_RESET " = submit word\n");
+    printf("  • " ANSI_GREEN "ETIRW" ANSI_RESET " = finish session\n");
+    printf("  • " ANSI_RED "Ctrl+C" ANSI_RESET " = abort\n");
     fflush(stdout);
     
     int success = 0;
     
-    // Read write commands - use getline for robustness
+    // Enable raw mode for character-by-character input
+    struct termios orig_termios;
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    struct termios raw = orig_termios;
+    raw.c_lflag &= ~(ECHO | ICANON);  // Disable echo and canonical mode
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    
+    #define MAX_WORD_CONTENT 4096
+    char content_buffer[MAX_WORD_CONTENT];
+    int buffer_pos = 0;
+    content_buffer[0] = '\0';
+    
+    printf("\n> ");
+    fflush(stdout);
+    
+    // Character-by-character input loop
     while (1) {
-        printf("  ");
-        fflush(stdout);
+        char c;
+        if (read(STDIN_FILENO, &c, 1) != 1) break;
         
-        // Check and clear stdin errors
-        if (feof(stdin)) clearerr(stdin);
-        if (ferror(stdin)) clearerr(stdin);
-        
-        char* line = NULL;
-        size_t len = 0;
-        ssize_t read;
-        
-        // Use getline for dynamic allocation and better EOF handling
-        read = getline(&line, &len, stdin);
-        
-        if (read == -1) {
-            // True EOF or error
-            if (line) free(line);
-            if (feof(stdin)) {
-                printf("\n(Reached end of input - unlocking without saving)\n");
-                clearerr(stdin);
-            } else {
-                printf("\n(Input error - unlocking without saving)\n");
-            }
+        // Handle Ctrl+C - abort
+        if (c == 3) {
+            printf("\n" ANSI_RED "^C - Aborting without saving" ANSI_RESET "\n");
+            success = 0;
             break;
         }
         
-        // Remove trailing newline/whitespace
-        while (read > 0 && (line[read-1] == '\n' || line[read-1] == '\r' || 
-                            line[read-1] == ' ' || line[read-1] == '\t')) {
-            line[--read] = '\0';
-        }
-        
-        // Skip empty lines
-        if (read == 0 || strlen(line) == 0) {
-            free(line);
-            continue;
-        }
-        
-        // Check for ETIRW (finish and save)
-        if (strcmp(line, "ETIRW") == 0 || strcmp(line, "etirw") == 0) {
-            free(line);
-            // Unlock sentence
+        // Handle Ctrl+N (ASCII 14) - finish current word_idx
+        if (c == 14) {  // Ctrl+N
+            if (buffer_pos == 0) {
+                printf("\n" ANSI_BRIGHT_BLACK "(empty - skipped)" ANSI_RESET "\n> ");
+                fflush(stdout);
+                continue;
+            }
+            
+            content_buffer[buffer_pos] = '\0';
+            
+            // ALWAYS check for ETIRW first, regardless of flag
+            if (strcmp(content_buffer, "ETIRW") == 0 || strcmp(content_buffer, "etirw") == 0) {
+                // Unlock sentence
+                memset(&header, 0, sizeof(header));
+                header.msg_type = MSG_REQUEST;
+                header.op_code = OP_SS_WRITE_UNLOCK;
+                strcpy(header.filename, filename);
+                strcpy(header.username, state->username);
+                header.sentence_index = sentence_idx;
+                header.data_length = 0;
+                
+                send_message(ss_socket, &header, NULL);
+                response = NULL;
+                recv_message(ss_socket, &header, &response);
+                if (response) free(response);
+                
+                if (header.msg_type == MSG_ACK) {
+                    printf("\n");
+                    PRINT_OK("Write successful!");
+                    success = 1;
+                } else {
+                    printf("\n");
+                    PRINT_ERR("%s", get_error_message(header.error_code));
+                }
+                break;
+            }
+            
+            // Parse "wordindex content"
+            char *space_ptr = strchr(content_buffer, ' ');
+            if (!space_ptr) {
+                printf("\n" ANSI_RED "Invalid format. Use: word_index content" ANSI_RESET "\n> ");
+                buffer_pos = 0;
+                content_buffer[0] = '\0';
+                fflush(stdout);
+                continue;
+            }
+            
+            int word_idx;
+            if (sscanf(content_buffer, "%d", &word_idx) != 1 || word_idx < 0) {
+                printf("\n" ANSI_RED "Invalid word index" ANSI_RESET "\n> ");
+                buffer_pos = 0;
+                content_buffer[0] = '\0';
+                fflush(stdout);
+                continue;
+            }
+            
+            // Get content after space
+            space_ptr++;
+            while (*space_ptr == ' ') space_ptr++;
+            
+            if (strlen(space_ptr) == 0) {
+                printf("\n" ANSI_RED "Word content cannot be empty" ANSI_RESET "\n> ");
+                buffer_pos = 0;
+                content_buffer[0] = '\0';
+                fflush(stdout);
+                continue;
+            }
+            
+            // Encode newlines as <NL> token for transmission
+            char encoded_content[MAX_WORD_CONTENT * 5];  // Worst case: all newlines
+            encoded_content[0] = '\0';
+            const char *src = space_ptr;
+            char *dst = encoded_content;
+            while (*src && (dst - encoded_content) < (int)sizeof(encoded_content) - 10) {
+                if (*src == '\n') {
+                    strcpy(dst, "<NL>");
+                    dst += 4;
+                } else {
+                    *dst++ = *src;
+                }
+                src++;
+            }
+            *dst = '\0';
+            
+            char *new_word = strdup(encoded_content);
+            if (!new_word) {
+                printf("\n" ANSI_RED "Memory allocation failed" ANSI_RESET "\n> ");
+                buffer_pos = 0;
+                content_buffer[0] = '\0';
+                fflush(stdout);
+                continue;
+            }
+            
+            // Send OP_SS_WRITE_WORD
             memset(&header, 0, sizeof(header));
             header.msg_type = MSG_REQUEST;
-            header.op_code = OP_SS_WRITE_UNLOCK;
+            header.op_code = OP_SS_WRITE_WORD;
             strcpy(header.filename, filename);
             strcpy(header.username, state->username);
             header.sentence_index = sentence_idx;
-            header.data_length = 0;
             
-            send_message(ss_socket, &header, NULL);
+            size_t payload_len = snprintf(NULL, 0, "%d %s", word_idx, new_word) + 1;
+            char *payload = malloc(payload_len);
+            if (!payload) {
+                free(new_word);
+                printf("\n" ANSI_RED "Memory allocation failed" ANSI_RESET "\n> ");
+                buffer_pos = 0;
+                content_buffer[0] = '\0';
+                fflush(stdout);
+                continue;
+            }
             
+            snprintf(payload, payload_len, "%d %s", word_idx, new_word);
+            header.data_length = strlen(payload);
+            
+            send_message(ss_socket, &header, payload);
             response = NULL;
             recv_message(ss_socket, &header, &response);
             if (response) free(response);
             
             if (header.msg_type == MSG_ACK) {
-                PRINT_OK("Write successful!");
-                success = 1;
+                printf("\n" ANSI_GREEN "✓ Word %d set" ANSI_RESET "\n> ", word_idx);
             } else {
-                PRINT_ERR("%s", get_error_message(header.error_code));
+                printf("\n" ANSI_RED "%s" ANSI_RESET "\n> ", get_error_message(header.error_code));
             }
-            break;
-        }
-        
-        // Parse word modification: "word_index content"
-        int word_idx;
-        char* space_ptr = strchr(line, ' ');
-        
-        if (!space_ptr) {
-            printf("  "); PRINT_ERR("Invalid format. Use: <word_index> <content>");
-            printf("  Example: 0 Hello\n");
-            free(line);
-            continue;
-        }
-        
-        if (sscanf(line, "%d", &word_idx) != 1 || word_idx < 0) {
-            printf("  Invalid word index. Must be a non-negative integer.\n");
-            free(line);
-            continue;
-        }
-        
-        // Get the rest of the line as the new word (skip leading spaces after index)
-        space_ptr++;
-        while (*space_ptr == ' ' || *space_ptr == '\t') space_ptr++;
-        
-        if (strlen(space_ptr) == 0) {
-            printf("  "); PRINT_ERR("Word content cannot be empty.");
-            free(line);
-            continue;
-        }
-        
-        // Allocate new_word dynamically to handle any length
-        char* new_word = strdup(space_ptr);
-        if (!new_word) {
-            printf("  "); PRINT_ERR("Memory allocation failed.");
-            free(line);
-            continue;
-        }
-        
-        // Send write word command
-        memset(&header, 0, sizeof(header));
-        header.msg_type = MSG_REQUEST;
-        header.op_code = OP_SS_WRITE_WORD;
-        strcpy(header.filename, filename);
-        strcpy(header.username, state->username);
-        header.sentence_index = sentence_idx;
-        
-        // Build payload dynamically
-        size_t payload_len = snprintf(NULL, 0, "%d %s", word_idx, new_word) + 1;
-        char* payload = malloc(payload_len);
-        if (!payload) {
-            printf("  "); PRINT_ERR("Memory allocation failed.");
+            
+            free(payload);
             free(new_word);
-            free(line);
+            
+            // Reset buffer for next word
+            buffer_pos = 0;
+            content_buffer[0] = '\0';
+            fflush(stdout);
             continue;
         }
         
-        snprintf(payload, payload_len, "%d %s", word_idx, new_word);
-        header.data_length = strlen(payload);
-        
-        send_message(ss_socket, &header, payload);
-        
-        response = NULL;
-        recv_message(ss_socket, &header, &response);
-        
-        if (response) free(response);
-        
-        if (header.msg_type == MSG_ACK) {
-            printf("  "); PRINT_OK("-> Word %d set to: %s", word_idx, new_word);
-        } else {
-            printf("  "); PRINT_ERR("%s", get_error_message(header.error_code));
-            printf("  (Try using a valid word index or type ETIRW to finish)\n");
+        // Handle ENTER - insert newline into content
+        if (c == '\n' || c == '\r') {
+            if (buffer_pos < MAX_WORD_CONTENT - 1) {
+                content_buffer[buffer_pos++] = '\n';
+                printf("\n  ");  // Visual feedback with indent
+                fflush(stdout);
+            }
+            continue;
         }
         
-        free(payload);
-        free(new_word);
-        free(line);
+        // Handle Backspace
+        if (c == 127 || c == 8) {
+            if (buffer_pos > 0) {
+                // Handle newline deletion specially
+                if (content_buffer[buffer_pos - 1] == '\n') {
+                    buffer_pos--;
+                    // Move cursor up and to end of previous line
+                    printf("\033[A\033[999C");  // Up one line, far right
+                } else {
+                    buffer_pos--;
+                    printf("\b \b");
+                }
+                fflush(stdout);
+            }
+            continue;
+        }
+        
+        // Handle printable characters
+        if (isprint((unsigned char)c) && buffer_pos < MAX_WORD_CONTENT - 1) {
+            content_buffer[buffer_pos++] = c;
+            printf("%c", c);
+            fflush(stdout);
+        }
     }
+    
+    // Restore terminal mode
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
     
     safe_close_socket(&ss_socket);
     return success ? ERR_SUCCESS : ERR_FILE_OPERATION_FAILED;
