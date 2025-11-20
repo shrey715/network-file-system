@@ -336,7 +336,7 @@ int nm_check_permission(const char* filename, const char* username, int need_wri
  *                some workflows but stored for completeness).
  * @param client_port Port number clients should use to contact the storage
  *                    server for data operations.
- * @return ERR_SUCCESS on success, ERR_FILE_EXISTS if an active server with the
+ * @return ERR_SUCCESS on success, ERR_SS_EXISTS if an active server with the
  *         same ID or port already exists, or ERR_FILE_OPERATION_FAILED if
  *         registry capacity is exhausted.
  */
@@ -362,7 +362,7 @@ int nm_register_storage_server(int server_id, const char* ip, int nm_port, int c
                      "✗ Registration REJECTED: Client port %d is already in use by Storage Server #%d (IP=%s)",
                      client_port, ns_state.storage_servers[i].server_id, ns_state.storage_servers[i].ip);
             log_message("NM", "ERROR", err_msg);
-            return ERR_FILE_EXISTS;
+            return ERR_SS_EXISTS;
         }
     }
     
@@ -375,7 +375,7 @@ int nm_register_storage_server(int server_id, const char* ip, int nm_port, int c
                      "✗ Registration REJECTED: Storage Server ID %d is already in use (IP=%s, Port=%d)",
                      server_id, existing_ss->ip, existing_ss->client_port);
             log_message("NM", "ERROR", err_msg);
-            return ERR_FILE_EXISTS;
+            return ERR_SS_EXISTS;
         } else {
             // The server is re-registering. Update its information.
             strcpy(existing_ss->ip, ip);

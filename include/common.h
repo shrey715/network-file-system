@@ -177,6 +177,7 @@ extern int enable_colors;
 #define ERR_ALREADY_HAS_ACCESS 124
 #define ERR_INVALID_FILENAME 125
 #define ERR_USERNAME_TAKEN 126
+#define ERR_SS_EXISTS 127  // Storage Server ID already in use
 
 // ============ MESSAGE STRUCTURE ============
 typedef struct {
