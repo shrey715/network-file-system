@@ -92,6 +92,8 @@ extern int enable_colors;
 #define MAX_SENTENCE_CONTENT 2048  // Maximum length for sentence content snapshot
 #define LRU_CACHE_SIZE 100       // Size of LRU cache for file lookups
 #define TRIE_ALPHABET_SIZE 256   // ASCII character set for Trie
+#define HEARTBEAT_TIMEOUT 30     // Seconds before marking storage server as inactive
+#define HEARTBEAT_CHECK_INTERVAL 10  // Seconds between heartbeat checks
 
 // ============ MESSAGE TYPES ============
 #define MSG_REQUEST 1

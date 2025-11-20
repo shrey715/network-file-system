@@ -9,6 +9,61 @@ SSConfig config;
 volatile sig_atomic_t server_running = 1;
 
 /**
+ * send_heartbeats
+ * @brief Background thread that periodically sends heartbeat messages to the Name Server
+ *        to indicate the storage server is still active and responsive.
+ *
+ * This thread sends heartbeats at half the check interval to ensure the Name Server
+ * receives updates well before the timeout period expires. The heartbeat includes
+ * the server ID in the flags field for identification.
+ *
+ * @param arg Pointer to SSConfig containing Name Server connection details.
+ * @return NULL (thread runs indefinitely until process terminates).
+ */
+void* send_heartbeats(void* arg) {
+    SSConfig* config = (SSConfig*)arg;
+    
+    log_message("SS", "INFO", "Heartbeat thread started");
+    
+    while (server_running) {
+        sleep(HEARTBEAT_CHECK_INTERVAL / 2);  // Send heartbeats twice as often as timeout check
+        
+        if (!server_running) break;  // Check again after sleep
+        
+        MessageHeader header;
+        init_message_header(&header, MSG_REQUEST, OP_HEARTBEAT, "system");
+        header.flags = config->server_id;  // Pass server ID in flags
+        
+        // Send heartbeat to NM (create new connection each time)
+        int nm_socket = connect_to_server(config->nm_ip, config->nm_port);
+        if (nm_socket > 0) {
+            if (send_message(nm_socket, &header, NULL) == 0) {
+                // Wait for ACK
+                char* response = NULL;
+                if (recv_message(nm_socket, &header, &response) > 0) {
+                    if (header.msg_type == MSG_ACK) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "♥ Heartbeat sent to NM (SS #%d)", config->server_id);
+                        log_message("SS", "DEBUG", msg);
+                    }
+                }
+                if (response) free(response);
+            }
+            close(nm_socket);
+        } else {
+            char msg[256];
+            snprintf(msg, sizeof(msg), 
+                     "⚠ Failed to connect to NM for heartbeat (SS #%d)", 
+                     config->server_id);
+            log_message("SS", "WARN", msg);
+        }
+    }
+    
+    log_message("SS", "INFO", "Heartbeat thread stopping");
+    return NULL;
+}
+
+/**
  * signal_handler
  * @brief Handle shutdown signals gracefully
  */
@@ -80,8 +135,8 @@ int main(int argc, char* argv[]) {
     send_message(nm_socket, &header, payload);
     
     // Wait for ACK
-    char* response;
-    recv_message(nm_socket, &header, &response);
+    char* response = NULL;
+    int recv_result = recv_message(nm_socket, &header, &response);
     
     char reg_details[512];
     snprintf(reg_details, sizeof(reg_details), 
@@ -89,17 +144,52 @@ int main(int argc, char* argv[]) {
              config.server_id, config.client_port, config.nm_port, 
              config.nm_ip, config.nm_port);
     
-    if (header.msg_type == MSG_ACK) {
-        log_operation("SS", "INFO", "SS_REGISTER", "system", 
-                     config.nm_ip, config.nm_port, reg_details, ERR_SUCCESS);
-    } else {
+    // Check if we received a response
+    if (recv_result < 0) {
+        log_message("SS", "ERROR", "Failed to receive registration response from Name Server");
+        close(nm_socket);
+        if (response) free(response);
+        return 1;
+    }
+    
+    // Check registration status
+    if (header.msg_type != MSG_ACK || header.error_code != ERR_SUCCESS) {
         log_operation("SS", "ERROR", "SS_REGISTER", "system",
                      config.nm_ip, config.nm_port, reg_details, 
                      header.error_code);
+        
+        char err_msg[512];
+        snprintf(err_msg, sizeof(err_msg), 
+                 "✗ Registration FAILED: %s (error=%d). Storage Server shutting down.",
+                 get_error_message(header.error_code), header.error_code);
+        log_message("SS", "ERROR", err_msg);
+        
         close(nm_socket);
+        if (response) free(response);
+        return 1;  // Exit cleanly on registration failure
+    }
+    
+    // Registration successful
+    log_operation("SS", "INFO", "SS_REGISTER", "system", 
+                 config.nm_ip, config.nm_port, reg_details, ERR_SUCCESS);
+    log_message("SS", "INFO", "✓ Successfully registered with Name Server");
+    
+    if (response) free(response);
+    close(nm_socket);  // Close registration connection
+    
+    // Start heartbeat thread to keep connection alive
+    pthread_t heartbeat_thread;
+    if (pthread_create(&heartbeat_thread, NULL, send_heartbeats, &config) != 0) {
+        log_message("SS", "ERROR", "Failed to create heartbeat thread");
         return 1;
     }
-    if (response) free(response);
+    pthread_detach(heartbeat_thread);  // Run in background
+    
+    char hb_msg[256];
+    snprintf(hb_msg, sizeof(hb_msg), 
+             "✓ Heartbeat thread started for SS #%d (interval: %d seconds)", 
+             config.server_id, HEARTBEAT_CHECK_INTERVAL / 2);
+    log_message("SS", "INFO", hb_msg);
     
     // Create client listener socket
     int client_socket = create_server_socket(config.client_port);
@@ -109,7 +199,6 @@ int main(int argc, char* argv[]) {
                  "Failed to create client socket on port %d", 
                  config.client_port);
         log_message("SS", "ERROR", errmsg);
-        close(nm_socket);
         return 1;
     }
     
@@ -184,7 +273,6 @@ int main(int argc, char* argv[]) {
              config.server_id, config.client_port);
     log_message("SS", "INFO", shutdown_msg);
     
-    close(nm_socket);
     close(client_socket);
     cleanup_locked_file_registry();
     

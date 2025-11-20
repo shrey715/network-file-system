@@ -326,9 +326,9 @@ int nm_check_permission(const char* filename, const char* username, int need_wri
  * nm_register_storage_server
  * @brief Register or update a Storage Server's information in the Name Server.
  *
- * Adds a new StorageServerInfo entry or updates an existing one if the
- * `server_id` is already present. Marks the server active and records
- * heartbeat time. Does not verify network reachability.
+ * Prevents duplicate active server IDs and duplicate client ports by rejecting
+ * registration attempts when conflicts exist. Allows re-registration of
+ * inactive servers. Marks the server active and records heartbeat time.
  *
  * @param server_id Numeric identifier for the storage server.
  * @param ip Null-terminated IPv4 address string for the storage server.
@@ -336,53 +336,91 @@ int nm_check_permission(const char* filename, const char* username, int need_wri
  *                some workflows but stored for completeness).
  * @param client_port Port number clients should use to contact the storage
  *                    server for data operations.
- * @return ERR_SUCCESS on success, or ERR_FILE_OPERATION_FAILED if registry
- *         capacity is exhausted.
+ * @return ERR_SUCCESS on success, ERR_FILE_EXISTS if an active server with the
+ *         same ID or port already exists, or ERR_FILE_OPERATION_FAILED if
+ *         registry capacity is exhausted.
  */
 int nm_register_storage_server(int server_id, const char* ip, int nm_port, int client_port) {
     pthread_mutex_lock(&ns_state.lock);
     
-    // Check if server already registered
+    StorageServerInfo* existing_ss = NULL;
+    
+    // Check for duplicate ID or port conflicts
     for (int i = 0; i < ns_state.ss_count; i++) {
         if (ns_state.storage_servers[i].server_id == server_id) {
-            // Update existing server
-            strcpy(ns_state.storage_servers[i].ip, ip);
-            ns_state.storage_servers[i].nm_port = nm_port;
-            ns_state.storage_servers[i].client_port = client_port;
-            ns_state.storage_servers[i].is_active = 1;
-            ns_state.storage_servers[i].last_heartbeat = time(NULL);
+            existing_ss = &ns_state.storage_servers[i];
+        }
+        
+        // Check if another ACTIVE server is using this client port
+        if (ns_state.storage_servers[i].is_active && 
+            ns_state.storage_servers[i].client_port == client_port &&
+            ns_state.storage_servers[i].server_id != server_id) {
             pthread_mutex_unlock(&ns_state.lock);
-            return ERR_SUCCESS;
+            
+            char err_msg[512];
+            snprintf(err_msg, sizeof(err_msg), 
+                     "✗ Registration REJECTED: Client port %d is already in use by Storage Server #%d (IP=%s)",
+                     client_port, ns_state.storage_servers[i].server_id, ns_state.storage_servers[i].ip);
+            log_message("NM", "ERROR", err_msg);
+            return ERR_FILE_EXISTS;
         }
     }
     
-    // Add new server
-    if (ns_state.ss_count >= MAX_STORAGE_SERVERS) {
+    if (existing_ss) {
+        if (existing_ss->is_active) {
+            // An active server with this ID already exists. Reject the request.
+            pthread_mutex_unlock(&ns_state.lock);
+            char err_msg[512];
+            snprintf(err_msg, sizeof(err_msg), 
+                     "✗ Registration REJECTED: Storage Server ID %d is already in use (IP=%s, Port=%d)",
+                     server_id, existing_ss->ip, existing_ss->client_port);
+            log_message("NM", "ERROR", err_msg);
+            return ERR_FILE_EXISTS;
+        } else {
+            // The server is re-registering. Update its information.
+            strcpy(existing_ss->ip, ip);
+            existing_ss->nm_port = nm_port;
+            existing_ss->client_port = client_port;
+            existing_ss->is_active = 1;
+            existing_ss->last_heartbeat = time(NULL);
+            pthread_mutex_unlock(&ns_state.lock);
+            
+            char msg[512];
+            snprintf(msg, sizeof(msg), 
+                     "✓ Re-registered Storage Server #%d | IP=%s | Client_Port=%d",
+                     server_id, ip, client_port);
+            log_message("NM", "INFO", msg);
+            return ERR_SUCCESS;
+        }
+    } else {
+        // No server with this ID exists. Register it as a new server.
+        if (ns_state.ss_count >= MAX_STORAGE_SERVERS) {
+            pthread_mutex_unlock(&ns_state.lock);
+            log_message("NM", "ERROR", "✗ Registration FAILED: Maximum storage server capacity reached");
+            return ERR_FILE_OPERATION_FAILED;
+        }
+        
+        StorageServerInfo* ss = &ns_state.storage_servers[ns_state.ss_count];
+        ss->server_id = server_id;
+        strcpy(ss->ip, ip);
+        ss->nm_port = nm_port;
+        ss->client_port = client_port;
+        ss->is_active = 1;
+        ss->last_heartbeat = time(NULL);
+        ss->files = NULL;
+        ss->file_count = 0;
+        
+        ns_state.ss_count++;
         pthread_mutex_unlock(&ns_state.lock);
-        return ERR_FILE_OPERATION_FAILED;
+        
+        char msg[512];
+        snprintf(msg, sizeof(msg), 
+                 "✓ Registered NEW Storage Server #%d | IP=%s | Client_Port=%d",
+                 server_id, ip, client_port);
+        log_message("NM", "INFO", msg);
+        
+        return ERR_SUCCESS;
     }
-    
-    StorageServerInfo* ss = &ns_state.storage_servers[ns_state.ss_count];
-    ss->server_id = server_id;
-    strcpy(ss->ip, ip);
-    ss->nm_port = nm_port;
-    ss->client_port = client_port;
-    ss->is_active = 1;
-    ss->last_heartbeat = time(NULL);
-    ss->files = NULL;
-    ss->file_count = 0;
-    
-    ns_state.ss_count++;
-    
-    pthread_mutex_unlock(&ns_state.lock);
-    
-    char msg[256];
-    snprintf(msg, sizeof(msg), 
-             "Registered Storage Server %d (%s:%d)", 
-             server_id, ip, client_port);
-    log_message("NM", "INFO", msg);
-    
-    return ERR_SUCCESS;
 }
 
 /**

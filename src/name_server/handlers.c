@@ -45,6 +45,7 @@ void* handle_client_connection(void* arg) {
             case OP_REGISTER_SS: operation = "SS_REGISTER"; break;
             case OP_CONNECT_CLIENT: operation = "CLIENT_CONNECT"; break;
             case OP_DISCONNECT: operation = "CLIENT_DISCONNECT"; break;
+            case OP_HEARTBEAT: operation = "HEARTBEAT"; break;
             case OP_VIEW: operation = "VIEW"; break;
             case OP_READ: operation = "READ"; break;
             case OP_CREATE: operation = "CREATE"; break;
@@ -1470,6 +1471,32 @@ void* handle_client_connection(void* arg) {
                 header.error_code = ERR_SUCCESS;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
+                break;
+            }
+            
+            case OP_HEARTBEAT: {
+                // Storage server heartbeat - update last_heartbeat timestamp
+                int ss_id = header.flags;  // Server ID passed in flags field
+                
+                pthread_mutex_lock(&ns_state.lock);
+                int found = 0;
+                for (int i = 0; i < ns_state.ss_count; i++) {
+                    if (ns_state.storage_servers[i].server_id == ss_id) {
+                        ns_state.storage_servers[i].last_heartbeat = time(NULL);
+                        found = 1;
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&ns_state.lock);
+                
+                // Send acknowledgment
+                header.msg_type = MSG_ACK;
+                header.error_code = found ? ERR_SUCCESS : ERR_SS_UNAVAILABLE;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
+                
+                result_code = header.error_code;
+                snprintf(details, sizeof(details), "♥ SS_ID=%d", ss_id);
                 break;
             }
             
