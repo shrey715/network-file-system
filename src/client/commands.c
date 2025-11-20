@@ -1004,16 +1004,29 @@ int execute_requestaccess(ClientState* state, const char* filename, int flags) {
     recv_message(state->nm_socket, &header, &response);
     
     if (header.msg_type == MSG_ACK) {
-        // Determine what was requested
-        int read_req = (flags & 0x01) ? 1 : 0;
-        int write_req = (flags & 0x02) ? 1 : 0;
-        if (!read_req && !write_req) read_req = 1;  // default
+        // Determine what was requested based on flags
+        // -W flag means both read and write, -R only means read, no flags means read
+        int read_flag = (flags & 0x01) ? 1 : 0;
+        int write_flag = (flags & 0x02) ? 1 : 0;
+        
+        int read_req, write_req;
+        if (write_flag) {
+            // -W flag present: both read and write
+            read_req = 1;
+            write_req = 1;
+        } else if (read_flag) {
+            // Only -R flag: read only
+            read_req = 1;
+            write_req = 0;
+        } else {
+            // No flags: default to read only
+            read_req = 1;
+            write_req = 0;
+        }
         
         char perm_str[64];
         if (read_req && write_req) {
             strcpy(perm_str, "read and write");
-        } else if (write_req) {
-            strcpy(perm_str, "write");
         } else {
             strcpy(perm_str, "read");
         }

@@ -1300,12 +1300,26 @@ void* handle_client_connection(void* arg) {
             case OP_REQUESTACCESS: {
                 // Request access to a file
                 // flags field: bit 0 = read, bit 1 = write
-                int read_requested = (header.flags & 0x01) ? 1 : 0;
-                int write_requested = (header.flags & 0x02) ? 1 : 0;
+                int read_flag = (header.flags & 0x01) ? 1 : 0;
+                int write_flag = (header.flags & 0x02) ? 1 : 0;
                 
-                // Default to read if no flags set
-                if (!read_requested && !write_requested) {
+                // Determine requested permissions:
+                // - If -W is present (regardless of -R), request both read and write
+                // - If only -R is present, request only read
+                // - If no flags, default to read only
+                int read_requested, write_requested;
+                if (write_flag) {
+                    // -W flag present: grant both read and write
                     read_requested = 1;
+                    write_requested = 1;
+                } else if (read_flag) {
+                    // Only -R flag present: grant only read
+                    read_requested = 1;
+                    write_requested = 0;
+                } else {
+                    // No flags: default to read only
+                    read_requested = 1;
+                    write_requested = 0;
                 }
                 
                 // First check what access they currently have
