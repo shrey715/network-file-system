@@ -128,17 +128,20 @@ void* handle_client_connection(void* arg) {
                 // Log connection request
                 log_operation("NM", "INFO", "CLIENT_CONNECT_REQUEST", payload, client_ip, client_port, "Registration attempt", 0);
                 
-                // Check if username is already taken
-                int username_exists = 0;
+                // First, check if username is already connected (reject if so)
+                int username_connected = 0;
+                int existing_index = -1;
                 for (int i = 0; i < ns_state.client_count; i++) {
-                    if (ns_state.clients[i].is_connected && 
-                        strcmp(ns_state.clients[i].username, payload) == 0) {
-                        username_exists = 1;
-                        break;
+                    if (strcmp(ns_state.clients[i].username, payload) == 0) {
+                        existing_index = i;
+                        if (ns_state.clients[i].is_connected) {
+                            username_connected = 1;
+                            break;
+                        }
                     }
                 }
                 
-                if (username_exists) {
+                if (username_connected) {
                     pthread_mutex_unlock(&ns_state.lock);
                     result_code = ERR_USERNAME_TAKEN;
                     snprintf(details, sizeof(details), "Username '%s' already in use", payload);
@@ -152,10 +155,23 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
-                // Register new client
-                if (ns_state.client_count < MAX_CLIENTS) {
-                    ClientInfo* client = &ns_state.clients[ns_state.client_count];
+                // Reuse existing disconnected entry or create new one
+                ClientInfo* client = NULL;
+                if (existing_index >= 0) {
+                    // Reuse existing disconnected entry
+                    client = &ns_state.clients[existing_index];
+                    snprintf(details, sizeof(details), "✓ Client '%s' reconnected from %s:%d (reused entry)", 
+                             payload, client_ip, client_port);
+                } else if (ns_state.client_count < MAX_CLIENTS) {
+                    // Create new entry
+                    client = &ns_state.clients[ns_state.client_count];
                     strcpy(client->username, payload);
+                    ns_state.client_count++;
+                    snprintf(details, sizeof(details), "✓ Client '%s' registered from %s:%d", 
+                             payload, client_ip, client_port);
+                }
+                
+                if (client) {
                     strcpy(connected_username, payload);  // Track username for disconnect
                     
                     struct sockaddr_in addr;
@@ -165,22 +181,30 @@ void* handle_client_connection(void* arg) {
                     
                     client->is_connected = 1;
                     client->last_activity = time(NULL);
-                    ns_state.client_count++;
                     
                     result_code = ERR_SUCCESS;
-                    snprintf(details, sizeof(details), "✓ Client '%s' registered from %s:%d", 
-                             payload, client_ip, client_port);
                     log_message("NM", "INFO", details);
+                } else {
+                    result_code = ERR_FILE_OPERATION_FAILED;
+                    snprintf(details, sizeof(details), "Failed to register client: max clients reached");
+                    log_message("NM", "ERROR", details);
                 }
                 pthread_mutex_unlock(&ns_state.lock);
                 
-                header.msg_type = MSG_ACK;
-                header.error_code = ERR_SUCCESS;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
-                
-                // Log successful connection
-                log_operation("NM", "INFO", "CLIENT_CONNECT_SUCCESS", payload, client_ip, client_port, "Client registered", ERR_SUCCESS);
+                if (result_code == ERR_SUCCESS) {
+                    header.msg_type = MSG_ACK;
+                    header.error_code = ERR_SUCCESS;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                    
+                    // Log successful connection
+                    log_operation("NM", "INFO", "CLIENT_CONNECT_SUCCESS", payload, client_ip, client_port, "Client registered", ERR_SUCCESS);
+                } else {
+                    header.msg_type = MSG_ERROR;
+                    header.error_code = result_code;
+                    header.data_length = 0;
+                    send_message(client_fd, &header, NULL);
+                }
                 break;
             }
             
@@ -271,12 +295,14 @@ void* handle_client_connection(void* arg) {
             }
             
             case OP_LIST: {
-                // List all users
+                // List all connected users only
                 response_buf[0] = '\0';
                 pthread_mutex_lock(&ns_state.lock);
                 for (int i = 0; i < ns_state.client_count; i++) {
-                    strcat(response_buf, ns_state.clients[i].username);
-                    strcat(response_buf, "\n");
+                    if (ns_state.clients[i].is_connected) {
+                        strcat(response_buf, ns_state.clients[i].username);
+                        strcat(response_buf, "\n");
+                    }
                 }
                 pthread_mutex_unlock(&ns_state.lock);
                 
