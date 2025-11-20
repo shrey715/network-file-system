@@ -1369,6 +1369,72 @@ void handle_ss_move(int client_fd, MessageHeader* header, const char* payload) {
 }
 
 /**
+ * handle_ss_checkpoint
+ * @brief Handler for OP_SS_CHECKPOINT operation.
+ */
+void handle_ss_checkpoint(int client_fd, MessageHeader* header) {
+    int result = ss_create_checkpoint(header->filename, header->checkpoint_tag);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_viewcheckpoint
+ * @brief Handler for OP_SS_VIEWCHECKPOINT operation.
+ */
+void handle_ss_viewcheckpoint(int client_fd, MessageHeader* header) {
+    char* content = NULL;
+    int result = ss_view_checkpoint(header->filename, header->checkpoint_tag, &content);
+    
+    if (result == ERR_SUCCESS && content) {
+        MessageHeader response;
+        memset(&response, 0, sizeof(response));
+        response.msg_type = MSG_RESPONSE;
+        response.error_code = ERR_SUCCESS;
+        response.data_length = strlen(content);
+        send_message(client_fd, &response, content);
+        free(content);
+    } else {
+        send_simple_response(client_fd, MSG_ERROR, result);
+        if (content) free(content);
+    }
+}
+
+/**
+ * handle_ss_revert
+ * @brief Handler for OP_SS_REVERT operation.
+ */
+void handle_ss_revert(int client_fd, MessageHeader* header) {
+    int result = ss_revert_checkpoint(header->filename, header->checkpoint_tag);
+    send_simple_response(client_fd, 
+                        (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
+                        result);
+}
+
+/**
+ * handle_ss_listcheckpoints
+ * @brief Handler for OP_SS_LISTCHECKPOINTS operation.
+ */
+void handle_ss_listcheckpoints(int client_fd, MessageHeader* header) {
+    char* checkpoint_list = NULL;
+    int result = ss_list_checkpoints(header->filename, &checkpoint_list);
+    
+    if (result == ERR_SUCCESS && checkpoint_list) {
+        MessageHeader response;
+        memset(&response, 0, sizeof(response));
+        response.msg_type = MSG_RESPONSE;
+        response.error_code = ERR_SUCCESS;
+        response.data_length = strlen(checkpoint_list);
+        send_message(client_fd, &response, checkpoint_list);
+        free(checkpoint_list);
+    } else {
+        send_simple_response(client_fd, MSG_ERROR, result);
+        if (checkpoint_list) free(checkpoint_list);
+    }
+}
+
+/**
  * handle_client_request
  * @brief Thread entrypoint for per-client connections to the Storage Server.
  *
@@ -1485,6 +1551,26 @@ void* handle_client_request(void* arg) {
             
             case OP_SS_MOVE:
                 handle_ss_move(client_fd, &header, payload);
+                keep_alive = 0;
+                break;
+            
+            case OP_SS_CHECKPOINT:
+                handle_ss_checkpoint(client_fd, &header);
+                keep_alive = 0;
+                break;
+            
+            case OP_SS_VIEWCHECKPOINT:
+                handle_ss_viewcheckpoint(client_fd, &header);
+                keep_alive = 0;
+                break;
+            
+            case OP_SS_REVERT:
+                handle_ss_revert(client_fd, &header);
+                keep_alive = 0;
+                break;
+            
+            case OP_SS_LISTCHECKPOINTS:
+                handle_ss_listcheckpoints(client_fd, &header);
                 keep_alive = 0;
                 break;
             

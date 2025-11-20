@@ -123,6 +123,11 @@ void handle_ss_write_word(int client_fd, MessageHeader* header, const char* payl
 void handle_ss_write_unlock(int client_fd, MessageHeader* header);
 void handle_ss_info(int client_fd, MessageHeader* header);
 void handle_ss_undo(int client_fd, MessageHeader* header);
+void handle_ss_move(int client_fd, MessageHeader* header, const char* payload);
+void handle_ss_checkpoint(int client_fd, MessageHeader* header);
+void handle_ss_viewcheckpoint(int client_fd, MessageHeader* header);
+void handle_ss_revert(int client_fd, MessageHeader* header);
+void handle_ss_listcheckpoints(int client_fd, MessageHeader* header);
 
 // Persistence
 void load_files(void);

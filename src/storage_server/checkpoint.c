@@ -3,7 +3,7 @@
 #include <dirent.h>
 #include <time.h>
 
-extern SSConfig ss_config;
+extern SSConfig config;
 
 /**
  * Creates a checkpoint for the given file with the specified tag
@@ -14,8 +14,8 @@ int ss_create_checkpoint(const char* filename, const char* checkpoint_tag) {
     char checkpoint_path[MAX_PATH];
     
     // Build path to the main file
-    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) < 0) {
-        return ERR_INVALID_PATH;
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     // Check if file exists
@@ -25,8 +25,8 @@ int ss_create_checkpoint(const char* filename, const char* checkpoint_tag) {
     }
     
     // Build checkpoint filename
-    if (ss_build_filepath(checkpoint_path, sizeof(checkpoint_path), filename, NULL) < 0) {
-        return ERR_INVALID_PATH;
+    if (ss_build_filepath(checkpoint_path, sizeof(checkpoint_path), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     // Append checkpoint extension
@@ -35,7 +35,7 @@ int ss_create_checkpoint(const char* filename, const char* checkpoint_tag) {
     int needed = snprintf(checkpoint_path + len, remaining, ".checkpoint.%s", checkpoint_tag);
     
     if (needed >= remaining) {
-        return ERR_INVALID_PATH;
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     // Check if checkpoint already exists
@@ -91,8 +91,8 @@ int ss_view_checkpoint(const char* filename, const char* checkpoint_tag, char** 
     char checkpoint_path[MAX_PATH];
     
     // Build checkpoint path
-    if (ss_build_filepath(checkpoint_path, sizeof(checkpoint_path), filename, NULL) < 0) {
-        return ERR_INVALID_PATH;
+    if (ss_build_filepath(checkpoint_path, sizeof(checkpoint_path), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     int len = strlen(checkpoint_path);
@@ -100,7 +100,7 @@ int ss_view_checkpoint(const char* filename, const char* checkpoint_tag, char** 
     int needed = snprintf(checkpoint_path + len, remaining, ".checkpoint.%s", checkpoint_tag);
     
     if (needed >= remaining) {
-        return ERR_INVALID_PATH;
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     // Check if checkpoint exists
@@ -144,12 +144,12 @@ int ss_revert_checkpoint(const char* filename, const char* checkpoint_tag) {
     char temp_path[MAX_PATH * 2];
     
     // Build paths
-    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) < 0) {
-        return ERR_INVALID_PATH;
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
     }
     
-    if (ss_build_filepath(checkpoint_path, sizeof(checkpoint_path), filename, NULL) < 0) {
-        return ERR_INVALID_PATH;
+    if (ss_build_filepath(checkpoint_path, sizeof(checkpoint_path), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     int len = strlen(checkpoint_path);
@@ -157,7 +157,7 @@ int ss_revert_checkpoint(const char* filename, const char* checkpoint_tag) {
     int needed = snprintf(checkpoint_path + len, remaining, ".checkpoint.%s", checkpoint_tag);
     
     if (needed >= remaining) {
-        return ERR_INVALID_PATH;
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     // Check if checkpoint exists
@@ -215,8 +215,8 @@ int ss_list_checkpoints(const char* filename, char** checkpoint_list) {
     char filepath[MAX_PATH];
     
     // Build base filepath
-    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) < 0) {
-        return ERR_INVALID_PATH;
+    if (ss_build_filepath(filepath, sizeof(filepath), filename, NULL) != ERR_SUCCESS) {
+        return ERR_FILE_OPERATION_FAILED;
     }
     
     // Extract directory and base filename
