@@ -89,6 +89,7 @@ extern int enable_colors;
 #define MAX_FOLDERS 500
 #define MAX_CLIENTS 100
 #define MAX_SENTENCE_LOCKS 100
+#define MAX_SENTENCE_CONTENT 2048  // Maximum length for sentence content snapshot
 #define LRU_CACHE_SIZE 100       // Size of LRU cache for file lookups
 #define TRIE_ALPHABET_SIZE 256   // ASCII character set for Trie
 

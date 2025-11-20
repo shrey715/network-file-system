@@ -5,14 +5,18 @@
 
 // ============ DATA STRUCTURES ============
 
-// Sentence structure with locking
-typedef struct {
+// Sentence node structure with locking (linked list)
+typedef struct SentenceNode {
     char* text;
     char* trailing_ws; // whitespace (spaces/newlines) that followed the sentence delimiter
     pthread_mutex_t lock;
     char locked_by[MAX_USERNAME];
     int is_locked;
-} Sentence;
+    struct SentenceNode* next;  // Pointer to next sentence in linked list
+} SentenceNode;
+
+// Alias for backward compatibility
+typedef SentenceNode Sentence;
 
 // File with sentences
 typedef struct {
@@ -47,9 +51,11 @@ typedef struct {
 typedef struct {
     char filename[MAX_FILENAME];
     char username[MAX_USERNAME];
-    int sentence_idx;
-    Sentence* sentences;
-    int sentence_count;
+    int sentence_idx;  // Original index when lock was acquired (for logging/debugging)
+    SentenceNode* locked_node;  // Pointer to the locked sentence node in the file's linked list
+    SentenceNode* sentence_list_head;  // Head of the sentence linked list snapshot (for editing)
+    int sentence_count;  // Total sentences in the snapshot
+    char original_text[MAX_SENTENCE_CONTENT];  // Original text at lock time (for matching on unlock)
     int is_active;
 } LockedFile;
 
@@ -59,11 +65,15 @@ typedef struct {
 void init_locked_file_registry(void);
 void cleanup_locked_file_registry(void);
 LockedFile* find_locked_file(const char* filename, const char* username);
-int add_locked_file(const char* filename, const char* username, int sentence_idx, 
-                    Sentence* sentences, int count);
+int add_locked_file(const char* filename, const char* username, int sentence_idx,
+                    SentenceNode* locked_node, SentenceNode* sentence_list_head, int count,
+                    const char* original_text);
 int check_lock(const char* filename, int sentence_idx, const char* username);
+int check_lock_by_node(const char* filename, SentenceNode* node, const char* username);
 int remove_lock(const char* filename, int sentence_idx);
-Sentence* get_locked_sentence(const char* filename, const char* username, int* count);
+int remove_lock_by_node(const char* filename, SentenceNode* node);
+SentenceNode* get_locked_sentence_list(const char* filename, const char* username, int* count);
+LockedFile* get_locked_file_by_node(const char* filename, const char* username, SentenceNode* node);
 int cleanup_user_locks(const char* username);
 
 // File operations
@@ -74,10 +84,12 @@ int ss_get_file_info(const char* filename, long* size, int* words, int* chars);
 int ss_move_file(const char* old_filename, const char* new_filename);
 
 // Sentence operations
-int parse_sentences(const char* text, Sentence** sentences);
+SentenceNode* parse_sentences_to_list(const char* text, int* count);
+int parse_sentences(const char* text, Sentence** sentences);  // Legacy - creates array for compatibility
 int lock_sentence(FileWithSentences* file, int sentence_idx, const char* username);
 int unlock_sentence(FileWithSentences* file, int sentence_idx, const char* username);
-void free_sentences(Sentence* sentences, int count);
+void free_sentence_list(SentenceNode* head);  // Free linked list
+void free_sentences(Sentence* sentences, int count);  // Legacy - for array-based
 
 // Write operations
 int ss_write_lock(const char* filename, int sentence_idx, const char* username);
