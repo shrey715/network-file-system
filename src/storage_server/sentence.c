@@ -364,8 +364,6 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
     if (!file_exists(filepath)) {
         return ERR_FILE_NOT_FOUND;
     }
-
-    ss_save_undo(filename);
     
     // Read current content
     char* content = read_file_content(filepath);
@@ -545,11 +543,11 @@ int ss_write_lock(const char* filename, int sentence_idx, const char* username) 
 
 /**
  * ss_write_word
- * @brief Replace a single word inside a sentence and persist the file.
+ * @brief Replace a single word inside a sentence in-memory.
  *
- * Performs an undo snapshot before modification, verifies the caller holds
- * the sentence lock, modifies the requested word, rebuilds the file text,
- * and writes it back atomically.
+ * Verifies the caller holds the sentence lock, modifies the requested word
+ * in the locked in-memory sentence list. Changes are NOT written to disk
+ * until ss_write_unlock is called (via ETIRW command).
  *
  * Uses identity-based locking: finds sentence by original content, not index.
  *
@@ -891,6 +889,16 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
             strcat(final_content, current->trailing_ws);
         }
         current = current->next;
+    }
+    
+    // Save undo snapshot before overwriting file
+    if (ss_save_undo(filename) != ERR_SUCCESS) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), 
+                 "Failed to create undo snapshot for '%s' during write unlock", 
+                 filename);
+        log_message("SS", "WARN", msg);
+        // Continue with write despite undo failure
     }
     
     // Write back properly formatted content
