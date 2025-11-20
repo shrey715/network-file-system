@@ -599,70 +599,86 @@ void* handle_client_connection(void* arg) {
                         close(ss_socket);
                         
                         if (ss_header.msg_type == MSG_RESPONSE && ss_response) {
-                            // Try extended parse: "Size:%ld Words:%d Chars:%d Created:%ld Modified:%ld Owner:%s"
+                            // Extract size/words/chars for cache update
                             long size = 0;
                             int words = 0, chars = 0;
-                            long created = 0, modified = 0;
-                            char owner[MAX_USERNAME] = "";
-
-                            int fields = sscanf(ss_response,
-                                    "Size:%ld Words:%d Chars:%d Created:%ld Modified:%ld Owner:%s",
-                                    &size, &words, &chars, &created, &modified, owner);
-
-                            if (fields >= 3) {
-                                // Update cached metadata in NM
-                                pthread_mutex_lock(&ns_state.lock);
-                                file->file_size = size;
-                                file->word_count = words;
-                                file->char_count = chars;
-                                file->last_accessed = time(NULL);
-
-                                // If extended fields were present, update timestamps/owner
-                                if (fields >= 6) {
-                                    if (created > 0) file->created_time = created;
-                                    if (modified > 0) file->last_modified = modified;
-                                    if (strlen(owner) > 0) strncpy(file->owner, owner, MAX_USERNAME-1);
+                            
+                            char* size_line = strstr(ss_response, "Size:");
+                            char* words_line = strstr(ss_response, "Words:");
+                            char* chars_line = strstr(ss_response, "Chars:");
+                            
+                            if (size_line) sscanf(size_line, "Size: %ld", &size);
+                            if (words_line) sscanf(words_line, "Words: %d", &words);
+                            if (chars_line) sscanf(chars_line, "Chars: %d", &chars);
+                            
+                            pthread_mutex_lock(&ns_state.lock);
+                            file->file_size = size;
+                            file->word_count = words;
+                            file->char_count = chars;
+                            file->last_accessed = time(NULL);
+                            pthread_mutex_unlock(&ns_state.lock);
+                            save_state();
+                            
+                            // Append ACL information as separate mini-section
+                            char acl_info[2048];
+                            char acl_entries[1800] = "";
+                            
+                            for (int i = 0; i < file->acl_count; i++) {
+                                char temp[128];
+                                char perms[4] = "";
+                                if (file->acl[i].read_permission && file->acl[i].write_permission) {
+                                    strcpy(perms, "RW");
+                                } else if (file->acl[i].read_permission) {
+                                    strcpy(perms, "R");
+                                } else if (file->acl[i].write_permission) {
+                                    strcpy(perms, "W");
+                                } else {
+                                    strcpy(perms, "-");
                                 }
-
-                                pthread_mutex_unlock(&ns_state.lock);
-                                save_state();
+                                
+                                // Use └─ for last entry, ├─ for others
+                                const char* branch = (i == file->acl_count - 1) ? "└─" : "├─";
+                                
+                                snprintf(temp, sizeof(temp),
+                                        "  %s%s%s %s%s%s (%s%s%s)\n",
+                                        ANSI_MAGENTA, branch, ANSI_RESET,
+                                        ANSI_BRIGHT_CYAN, file->acl[i].username, ANSI_RESET,
+                                        ANSI_BRIGHT_MAGENTA, perms, ANSI_RESET);
+                                strcat(acl_entries, temp);
+                            }
+                            
+                            snprintf(acl_info, sizeof(acl_info),
+                                    "%s%s═══ Access Permissions (%d) ═══%s\n"
+                                    "%s",
+                                    ANSI_BOLD, ANSI_MAGENTA, file->acl_count, ANSI_RESET,
+                                    acl_entries);
+                            
+                            // Combine SS response with ACL info
+                            size_t total_len = strlen(ss_response) + strlen(acl_info) + 1;
+                            char* combined_response = (char*)malloc(total_len);
+                            if (combined_response) {
+                                strcpy(combined_response, ss_response);
+                                strcat(combined_response, acl_info);
+                                
+                                header.msg_type = MSG_RESPONSE;
+                                header.error_code = ERR_SUCCESS;
+                                header.data_length = strlen(combined_response);
+                                send_message(client_fd, &header, combined_response);
+                                
+                                free(combined_response);
+                                free(ss_response);
+                                break;
                             }
                             free(ss_response);
                         }
                     }
                 }
                 
-                // Format info response
-                char time_str[64];
-                strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S",
-                        localtime(&file->created_time));
-                snprintf(response_buf, sizeof(response_buf),
-                        "File: %s\nOwner: %s\nCreated: %s\n",
-                        file->filename, file->owner, time_str);
-                
-                strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S",
-                        localtime(&file->last_modified));
-                char temp[256];
-                snprintf(temp, sizeof(temp), "Last Modified: %s\n", time_str);
-                strcat(response_buf, temp);
-                
-                snprintf(temp, sizeof(temp), "Size: %ld bytes\nWords: %d\nChars: %d\n",
-                        file->file_size, file->word_count, file->char_count);
-                strcat(response_buf, temp);
-                
-                strcat(response_buf, "Access:\n");
-                for (int i = 0; i < file->acl_count; i++) {
-                    snprintf(temp, sizeof(temp), "  %s (%s%s)\n",
-                            file->acl[i].username,
-                            file->acl[i].read_permission ? "R" : "",
-                            file->acl[i].write_permission ? "W" : "");
-                    strcat(response_buf, temp);
-                }
-                
-                header.msg_type = MSG_RESPONSE;
-                header.error_code = ERR_SUCCESS;
-                header.data_length = strlen(response_buf);
-                send_message(client_fd, &header, response_buf);
+                // Fallback - SS unavailable
+                header.msg_type = MSG_ERROR;
+                header.error_code = ERR_SS_UNAVAILABLE;
+                header.data_length = 0;
+                send_message(client_fd, &header, NULL);
                 break;
             }
             

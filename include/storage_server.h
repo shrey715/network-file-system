@@ -75,6 +75,7 @@ int remove_lock_by_node(const char* filename, SentenceNode* node);
 SentenceNode* get_locked_sentence_list(const char* filename, const char* username, int* count);
 LockedFile* get_locked_file_by_node(const char* filename, const char* username, SentenceNode* node);
 int cleanup_user_locks(const char* username);
+int get_file_locks(const char* filename, char* lock_info_out, size_t bufsize);
 
 // File operations
 int ss_create_file(const char* filename, const char* owner);
@@ -82,6 +83,10 @@ int ss_delete_file(const char* filename);
 int ss_read_file(const char* filename, char** content);
 int ss_get_file_info(const char* filename, long* size, int* words, int* chars);
 int ss_move_file(const char* old_filename, const char* new_filename);
+
+// Statistics tracking
+void increment_edit_stats(const char* filename, const char* username);
+int get_file_stats(const char* filename, char* stats_out, size_t bufsize);
 
 // Sentence operations
 SentenceNode* parse_sentences_to_list(const char* text, int* count);

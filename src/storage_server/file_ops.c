@@ -345,3 +345,144 @@ void save_file_metadata(const char* filename, const char* owner) {
         fclose(f);
     }
 }
+
+/**
+ * increment_edit_stats
+ * @brief Increment edit counter for a file
+ * @param filename File to update
+ * @param username User performing the edit
+ */
+void increment_edit_stats(const char* filename, const char* username) {
+    char stats_path[MAX_PATH];
+    
+    // Build path to .stats file
+    if (ss_build_filepath(stats_path, sizeof(stats_path), filename, ".stats") != ERR_SUCCESS) {
+        return;
+    }
+    
+    // Read existing stats or create new
+    FILE* f = fopen(stats_path, "r");
+    long total_edits = 0;
+    
+    // Storage for user statistics (simple implementation)
+    typedef struct {
+        char username[MAX_USERNAME];
+        long edit_count;
+    } UserStat;
+    
+    UserStat user_stats[100]; // Support up to 100 users per file
+    int user_count = 0;
+    
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, "total_edits:", 12) == 0) {
+                sscanf(line, "total_edits:%ld", &total_edits);
+            } else if (strncmp(line, "user:", 5) == 0) {
+                if (user_count < 100) {
+                    sscanf(line, "user:%[^:]:%ld", 
+                           user_stats[user_count].username, 
+                           &user_stats[user_count].edit_count);
+                    user_count++;
+                }
+            }
+        }
+        fclose(f);
+    }
+    
+    total_edits++;
+    
+    // Update or add user-specific counter
+    int user_found = 0;
+    for (int i = 0; i < user_count; i++) {
+        if (strcmp(user_stats[i].username, username) == 0) {
+            user_stats[i].edit_count++;
+            user_found = 1;
+            break;
+        }
+    }
+    
+    if (!user_found && user_count < 100) {
+        strncpy(user_stats[user_count].username, username, MAX_USERNAME - 1);
+        user_stats[user_count].username[MAX_USERNAME - 1] = '\0';
+        user_stats[user_count].edit_count = 1;
+        user_count++;
+    }
+    
+    // Write updated stats
+    f = fopen(stats_path, "w");
+    if (f) {
+        fprintf(f, "total_edits:%ld\n", total_edits);
+        for (int i = 0; i < user_count; i++) {
+            fprintf(f, "user:%s:%ld\n", user_stats[i].username, user_stats[i].edit_count);
+        }
+        fclose(f);
+    }
+}
+
+/**
+ * get_file_stats
+ * @brief Get statistics for a file
+ * @param filename File to query
+ * @param stats_out Output buffer for formatted statistics
+ * @param bufsize Size of output buffer
+ * @return ERR_SUCCESS or error code
+ */
+int get_file_stats(const char* filename, char* stats_out, size_t bufsize) {
+    char stats_path[MAX_PATH];
+    
+    if (ss_build_filepath(stats_path, sizeof(stats_path), filename, ".stats") != ERR_SUCCESS) {
+        snprintf(stats_out, bufsize, 
+                "  %s├─%s Total Edits: %s0%s\n",
+                ANSI_GREEN, ANSI_RESET,
+                ANSI_BRIGHT_GREEN, ANSI_RESET);
+        return ERR_SUCCESS;
+    }
+    
+    FILE* f = fopen(stats_path, "r");
+    if (!f) {
+        snprintf(stats_out, bufsize, 
+                "  %s├─%s Total Edits: %s0%s\n",
+                ANSI_GREEN, ANSI_RESET,
+                ANSI_BRIGHT_GREEN, ANSI_RESET);
+        return ERR_SUCCESS;
+    }
+    
+    long total_edits = 0;
+    char most_active_user[MAX_USERNAME] = "none";
+    long max_user_edits = 0;
+    
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "total_edits:", 12) == 0) {
+            sscanf(line, "total_edits:%ld", &total_edits);
+        } else if (strncmp(line, "user:", 5) == 0) {
+            char username[MAX_USERNAME];
+            long user_edits;
+            if (sscanf(line, "user:%[^:]:%ld", username, &user_edits) == 2) {
+                if (user_edits > max_user_edits) {
+                    max_user_edits = user_edits;
+                    strncpy(most_active_user, username, sizeof(most_active_user) - 1);
+                    most_active_user[sizeof(most_active_user) - 1] = '\0';
+                }
+            }
+        }
+    }
+    fclose(f);
+    
+    if (total_edits > 0) {
+        snprintf(stats_out, bufsize,
+                "  %s├─%s Total Edits: %s%ld%s\n"
+                "  %s└─%s Most Active User: %s%s%s (%s%ld%s edits)\n",
+                ANSI_GREEN, ANSI_RESET, ANSI_BRIGHT_GREEN, total_edits, ANSI_RESET,
+                ANSI_GREEN, ANSI_RESET, ANSI_BRIGHT_MAGENTA, most_active_user, ANSI_RESET,
+                ANSI_BRIGHT_GREEN, max_user_edits, ANSI_RESET);
+    } else {
+        snprintf(stats_out, bufsize,
+                "  %s└─%s Total Edits: %s0%s\n",
+                ANSI_GREEN, ANSI_RESET,
+                ANSI_BRIGHT_GREEN, ANSI_RESET);
+    }
+    
+    return ERR_SUCCESS;
+}

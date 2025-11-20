@@ -496,3 +496,47 @@ int remove_lock_by_content(const char* filename, const char* sentence_content) {
     log_message("SS", "WARN", msg);
     return ERR_PERMISSION_DENIED;
 }
+
+/**
+ * get_file_locks
+ * @brief Get all active locks for a specific file
+ * @param filename File to query
+ * @param lock_info_out Output buffer for lock information string
+ * @param bufsize Size of output buffer
+ * @return Number of active locks found
+ */
+int get_file_locks(const char* filename, char* lock_info_out, size_t bufsize) {
+    pthread_mutex_lock(&registry_mutex);
+    
+    int count = 0;
+    char temp[4096] = "";
+    
+    for (int i = 0; i < MAX_LOCKED_FILES; i++) {
+        if (locked_files[i].is_active && 
+            strcmp(locked_files[i].filename, filename) == 0) {
+            
+            char lock_entry[256];
+            snprintf(lock_entry, sizeof(lock_entry),
+                    "  %s├─%s Sentence %s%d%s: locked by %s%s%s\n",
+                    ANSI_YELLOW, ANSI_RESET,
+                    ANSI_BRIGHT_CYAN, locked_files[i].sentence_idx, ANSI_RESET,
+                    ANSI_BRIGHT_YELLOW, locked_files[i].username, ANSI_RESET);
+            
+            if (strlen(temp) + strlen(lock_entry) < sizeof(temp)) {
+                strcat(temp, lock_entry);
+                count++;
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&registry_mutex);
+    
+    if (count == 0) {
+        snprintf(lock_info_out, bufsize, "  %sNo active locks%s\n",
+                 ANSI_BRIGHT_BLACK, ANSI_RESET);
+    } else {
+        snprintf(lock_info_out, bufsize, "%s", temp);
+    }
+    
+    return count;
+}

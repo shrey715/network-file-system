@@ -944,6 +944,9 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
         }
     }
     
+    // Track edit statistics
+    increment_edit_stats(filename, username);
+    
     char msg[512];
     const char* orig_text = locked_file->original_text;
     snprintf(msg, sizeof(msg), 
@@ -1294,7 +1297,7 @@ void handle_ss_write_unlock(int client_fd, MessageHeader* header) {
 
 /**
  * handle_ss_info
- * @brief Handler for OP_INFO operation.
+ * @brief Handler for OP_INFO operation - returns detailed file information
  */
 void handle_ss_info(int client_fd, MessageHeader* header) {
     long size;
@@ -1302,11 +1305,12 @@ void handle_ss_info(int client_fd, MessageHeader* header) {
     int result = ss_get_file_info(header->filename, &size, &words, &chars);
 
     if (result == ERR_SUCCESS) {
-        // Try to read owner/created/modified from .meta if present
+        // Get basic metadata
         char metapath[MAX_PATH];
-        char owner[MAX_USERNAME] = "";
+        char owner[MAX_USERNAME] = "unknown";
         long created = 0;
         long modified = 0;
+        
         if (ss_build_filepath(metapath, sizeof(metapath), header->filename, ".meta") == ERR_SUCCESS) {
             FILE* mf = fopen(metapath, "r");
             if (mf) {
@@ -1323,16 +1327,70 @@ void handle_ss_info(int client_fd, MessageHeader* header) {
                 fclose(mf);
             }
         }
-
-        char info[512];
-        // Format: include size/words/chars and metadata timestamps + owner
-        snprintf(info, sizeof(info), "Size:%ld Words:%d Chars:%d Created:%ld Modified:%ld Owner:%s",
-                 size, words, chars, created, modified, owner);
-
+        
+        // Get lock information
+        char lock_info[4096];
+        int active_locks = get_file_locks(header->filename, lock_info, sizeof(lock_info));
+        
+        // Get statistics
+        char stats_info[2048];
+        get_file_stats(header->filename, stats_info, sizeof(stats_info));
+        
+        // Format timestamps as human-readable dates
+        char created_str[64] = "Unknown";
+        char modified_str[64] = "Unknown";
+        
+        if (created > 0) {
+            time_t created_time = (time_t)created;
+            strftime(created_str, sizeof(created_str), "%Y-%m-%d %H:%M:%S", 
+                    localtime(&created_time));
+        }
+        
+        if (modified > 0) {
+            time_t modified_time = (time_t)modified;
+            strftime(modified_str, sizeof(modified_str), "%Y-%m-%d %H:%M:%S", 
+                    localtime(&modified_time));
+        }
+        
+        // Build comprehensive info response with ANSI colors
+        char info[8192];
+        snprintf(info, sizeof(info),
+                "%s%sFile:%s %s\n"
+                "%s%sOwner:%s %s\n"
+                "%s%sCreated:%s %s\n"
+                "%s%sLast Modified:%s %s\n"
+                "%s%sSize:%s %ld bytes\n"
+                "%s%sWords:%s %d\n"
+                "%s%sChars:%s %d\n"
+                "\n"
+                "%s%s═══ Active Locks (%d) ═══%s\n"
+                "%s"
+                "\n"
+                "%s%s═══ Statistics ═══%s\n"
+                "%s\n",
+                // File details with colors
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, header->filename,
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, owner,
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, created_str,
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, modified_str,
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, size,
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, words,
+                ANSI_BOLD, ANSI_CYAN, ANSI_RESET, chars,
+                // Lock section header
+                ANSI_BOLD, ANSI_YELLOW, active_locks, ANSI_RESET,
+                // Lock info (colorized in get_file_locks)
+                lock_info,
+                // Stats section header
+                ANSI_BOLD, ANSI_GREEN, ANSI_RESET,
+                // Stats info (colorized in get_file_stats)
+                stats_info);
+        
         MessageHeader resp;
         memset(&resp, 0, sizeof(resp));
         resp.msg_type = MSG_RESPONSE;
+        resp.error_code = ERR_SUCCESS;
         resp.data_length = strlen(info);
+        
         send_message(client_fd, &resp, info);
     } else {
         send_simple_response(client_fd, MSG_ERROR, result);
