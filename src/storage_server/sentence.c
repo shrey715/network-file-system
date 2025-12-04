@@ -1112,7 +1112,7 @@ int ss_stream_file(int client_socket, const char* filename) {
     strncpy(content_copy, content, sizeof(content_copy) - 1);
     content_copy[sizeof(content_copy) - 1] = '\0';
     
-    char* word = strtok(content_copy, " \t\n\r");
+    char* word = strtok(content_copy, " \t\r");
     while (word != NULL) {
         MessageHeader header;
         memset(&header, 0, sizeof(header));
@@ -1124,7 +1124,7 @@ int ss_stream_file(int client_socket, const char* filename) {
         // Sleep for 0.1 seconds (100,000 microseconds)
         usleep(100000);
         
-        word = strtok(NULL, " \t\n\r");
+        word = strtok(NULL, " \t\r");
     }
     
     // Send STOP message
