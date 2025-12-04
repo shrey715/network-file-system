@@ -129,6 +129,10 @@ int main(int argc, char* argv[]) {
             printf("\n");
             printf(ANSI_CYAN "User System:" ANSI_RESET "\n");
             printf("  user list                    - List all users\n");
+            printf("\n");
+            printf(ANSI_CYAN "AI Agent:" ANSI_RESET "\n");
+            printf("  agent <filename> <prompt>    - Generate file using AI\n");
+            printf("    Example: agent hello.py Create a Python hello world script\n");
             printf("\nquit/exit - Exit client\n\n");
             free(input);
             continue;
@@ -238,6 +242,25 @@ int main(int argc, char* argv[]) {
                 execute_list(&client_state);
             } else {
                 PRINT_ERR("Unknown user subcommand '%s'", subcommand);
+            }
+        }
+        else if (strcmp(command, "agent") == 0) {
+            // AGENT command: agent <filename> <prompt...>
+            // The filename is in subcommand, and the prompt starts from arg1
+            // We need to capture the rest of the line as the prompt
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: agent <filename> <prompt>");
+            } else {
+                // Reconstruct the full prompt from arg1, arg2, and remaining input
+                // Since parser only captures 2 args, we need to get the rest of the line
+                const char* prompt_start = strstr(input, subcommand) + strlen(subcommand);
+                while (*prompt_start == ' ' || *prompt_start == '\t') prompt_start++;
+                
+                if (strlen(prompt_start) > 0) {
+                    execute_agent(&client_state, subcommand, prompt_start);
+                } else {
+                    PRINT_ERR("Usage: agent <filename> <prompt>");
+                }
             }
         }
         else {
