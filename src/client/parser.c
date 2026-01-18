@@ -75,6 +75,26 @@ int parse_command(const char* input, char* command, char* subcommand, char* arg1
         return 0;
     }
 
+
+
+    if (strcmp(command, "ls") == 0) {
+        // Check if subcommand contains flags
+        if (subcommand[0] == '-') {
+            if (strstr(subcommand, "a")) *flags |= 0x01;
+            if (strstr(subcommand, "l")) *flags |= 0x02;
+            subcommand[0] = '\0'; // Clear subcommand as it was just a flag
+        }
+
+        // Parse remaining -a and -l flags
+        token = strtok(NULL, " \t");
+        while (token && token[0] == '-') {
+            if (strstr(token, "a")) *flags |= 0x01;
+            if (strstr(token, "l")) *flags |= 0x02;
+            token = strtok(NULL, " \t");
+        }
+        return 0;
+    }
+
     if (strcmp(command, "file") == 0 && strcmp(subcommand, "list") == 0) {
         // Parse -a and -l flags
         token = strtok(NULL, " \t");

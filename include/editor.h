@@ -38,7 +38,6 @@ typedef struct {
 /* Editor state */
 typedef struct {
   /* Terminal */
-  struct termios orig_termios;
   int screen_rows;
   int screen_cols;
 

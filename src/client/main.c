@@ -58,7 +58,6 @@ int main(int argc, char* argv[]) {
     }
     if (response) free(response);
     
-    // Initialize command history
     InputHistory history;
     init_history(&history);
     
@@ -66,7 +65,7 @@ int main(int argc, char* argv[]) {
     
     // Main command loop
     while (1) {
-        char* input = read_line_with_history(&history, ANSI_BRIGHT_BLUE "> " ANSI_RESET);
+        char* input = read_line_with_history(ANSI_BRIGHT_BLUE "> " ANSI_RESET, &history);
         
         if (input == NULL) {
             printf("\n");
@@ -79,8 +78,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
         
-        // Add non-empty commands to history
-        add_to_history(&history, input);
+        add_history(&history, input);
         
         // Parse command
         char command[64], subcommand[64], arg1[MAX_FILENAME], arg2[MAX_USERNAME];
@@ -137,9 +135,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
         
-        // Execute commands - Unix-style
-        
-        /* File operations */
+
         if (strcmp(command, "ls") == 0) {
             execute_view(&client_state, flags);
         }
@@ -186,7 +182,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        /* Editor */
+
         else if (strcmp(command, "open") == 0) {
             if (subcommand[0] == '\0') {
                 PRINT_ERR("Usage: open <file>");
@@ -210,7 +206,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        /* Version control (git-style) */
+
         else if (strcmp(command, "commit") == 0) {
             if (subcommand[0] == '\0' || arg1[0] == '\0') {
                 PRINT_ERR("Usage: commit <file> <tag>");
@@ -240,7 +236,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        /* Access control */
+
         else if (strcmp(command, "chmod") == 0) {
             if (subcommand[0] == '\0' || arg1[0] == '\0') {
                 PRINT_ERR("Usage: chmod <file> <user> [r][w]");
@@ -285,7 +281,7 @@ int main(int argc, char* argv[]) {
         free(input);
     }
     
-    // Cleanup
+
     free_history(&history);
     close(client_state.nm_socket);
     PRINT_INFO("Disconnected from Name Server");

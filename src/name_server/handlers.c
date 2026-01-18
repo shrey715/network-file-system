@@ -209,7 +209,23 @@ void* handle_client_connection(void* arg) {
                         }
                     }
                     
-                    if (!show_all && !has_access) continue;
+
+                    // Filter hidden files (starting with '.') unless -a is specified
+                    int is_hidden = (file->filename[0] == '.');
+                    if (is_hidden && !show_all) continue;
+                    
+                    if (!has_access) {
+                        // Normally we hide files user doesn't have access to
+                        // BUT if -a is for "admin/all" it might show them
+                        // Let's stick to standard behavior: only show what you have access to,
+                        // unless you are admin/root (not implemented yet).
+                        // Actually, previous logic was `if (!show_all && !has_access) continue;`
+                        // which implies `show_all` bypasses ALC checks? That seems insecure for a client explicit flag.
+                        // Let's assume standard behavior:
+                        // 1. Must have access
+                        // 2. If access OK, check hidden status
+                        continue;
+                    }
                     
                     if (show_details) {
                         // Refresh metadata from Storage Server before displaying

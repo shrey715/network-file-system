@@ -245,6 +245,10 @@ void init_message_header(MessageHeader *header, int msg_type, int op_code,
 int parse_ss_info(const char *ss_info, char *ip_out, int *port_out);
 void safe_close_socket(int *sockfd);
 
+//* Global logging configuration */
+extern int enable_colors;
+extern int debug_mode;
+
 // ============ LOGGING FUNCTIONS ============
 void log_message(const char *component, const char *level, const char *message);
 void log_operation(const char *component, const char *level,
@@ -256,6 +260,7 @@ int visual_strlen(
     const char *str); // Calculate visual width excluding ANSI codes
 char *read_file_content(const char *filepath);
 int write_file_content(const char *filepath, const char *content);
+void safe_strncpy(char *dest, const char *src, size_t n);
 int file_exists(const char *filepath);
 long get_file_size(const char *filepath);
 int is_valid_filename(

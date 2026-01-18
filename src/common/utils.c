@@ -100,6 +100,24 @@ int write_file_content(const char* filepath, const char* content) {
 }
 
 /**
+ * safe_strncpy
+ * @brief Safer version of strncpy that guarantees 0-termination.
+ *
+ * Copies up to n-1 characters from src to dest and null-terminates the result.
+ * If src is shorter than n-1, the remainder of dest is filled with 0.
+ *
+ * @param dest Destination buffer.
+ * @param src Source string.
+ * @param n Size of destination buffer.
+ */
+void safe_strncpy(char* dest, const char* src, size_t n) {
+    if (n == 0 || dest == NULL || src == NULL) return;
+    
+    strncpy(dest, src, n - 1);
+    dest[n - 1] = '\0';
+}
+
+/**
  * file_exists
  * @brief Check whether a file exists at `filepath`.
  *

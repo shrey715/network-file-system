@@ -49,7 +49,7 @@ static int find_first_prefix_match(const char* prefix, int prefix_len) {
  *
  * No parameters. Returns nothing.
  */
-static void disable_raw_mode(void) {
+void disable_raw_mode(void) {
     if (raw_mode_enabled) {
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
         raw_mode_enabled = 0;
@@ -64,7 +64,7 @@ static void disable_raw_mode(void) {
  *
  * @return 0 on success, -1 on failure or if stdin is not a terminal.
  */
-static int enable_raw_mode(void) {
+int enable_raw_mode(void) {
     if (!isatty(STDIN_FILENO)) {
         return -1;  // Not a terminal
     }
@@ -102,7 +102,7 @@ void init_history(InputHistory* hist) {
 }
 
 /**
- * add_to_history
+ * add_history
  * @brief Append a line to the input history buffer. Consecutive duplicate
  *        entries are ignored. If the history buffer is full the oldest entry
  *        is removed.
@@ -110,7 +110,7 @@ void init_history(InputHistory* hist) {
  * @param hist Pointer to an InputHistory structure to update.
  * @param line Null-terminated input line to add.
  */
-void add_to_history(InputHistory* hist, const char* line) {
+void add_history(InputHistory* hist, const char* line) {
     if (line == NULL || strlen(line) == 0) {
         return;
     }
@@ -135,10 +135,7 @@ void add_to_history(InputHistory* hist, const char* line) {
 
 void free_history(InputHistory* hist) {
     for (int i = 0; i < hist->count; i++) {
-        if (hist->lines[i] != NULL) {
-            free(hist->lines[i]);
-            hist->lines[i] = NULL;
-        }
+        free(hist->lines[i]);
     }
     hist->count = 0;
     hist->current = 0;
@@ -224,13 +221,13 @@ static void redraw_line(const char* prompt, const char* buffer, int cursor_pos) 
  *        fgets(). This function temporarily enables raw mode to implement
  *        arrow-key navigation and then restores terminal state.
  *
+ * @param prompt Prompt string to display (may include ANSI codes).
  * @param hist Pointer to an InputHistory instance used for up/down
  *             navigation and storage.
- * @param prompt Prompt string to display (may include ANSI codes).
  * @return Malloc'd null-terminated string containing the entered line on
  *         success (caller must free), or NULL on EOF/error or cancel.
  */
-char* read_line_with_history(InputHistory* hist, const char* prompt) {
+char* read_line_with_history(const char* prompt, InputHistory* hist) {
     // Check if stdin is a terminal
     if (!isatty(STDIN_FILENO)) {
         // Fallback to fgets for non-terminal input. Precede with CR to ensure

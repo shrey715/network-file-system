@@ -1,6 +1,7 @@
 #include "common.h"
 #include "client.h"
 #include "editor.h"
+#include "input.h"
 #include <ctype.h>
 #include <unistd.h>
 #include <termios.h>
@@ -266,7 +267,7 @@ int execute_read(ClientState* state, const char* filename) {
     // Request file content from SS
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_SS_READ, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     send_message(ss_socket, &header, NULL);
     
@@ -392,28 +393,52 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
     int success = 0;
     
     // Enable raw mode for character-by-character input
-    struct termios orig_termios;
-    tcgetattr(STDIN_FILENO, &orig_termios);
-    struct termios raw = orig_termios;
-    raw.c_lflag &= ~(ECHO | ICANON);  // Disable echo and canonical mode
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    // Check for interactive mode
+    int interactive = isatty(STDIN_FILENO);
+    
+    if (interactive) {
+        if (enable_raw_mode() == -1) {
+            safe_close_socket(&ss_socket);
+            return ERR_FILE_OPERATION_FAILED;
+        }
+    }
     
     #define MAX_WORD_CONTENT 4096
     char content_buffer[MAX_WORD_CONTENT];
     int buffer_pos = 0;
     content_buffer[0] = '\0';
     
-    printf("\n> ");
-    fflush(stdout);
+    if (interactive) {
+        printf("\n> ");
+        fflush(stdout);
+    }
     
-    // Character-by-character input loop
+    // Input loop
     while (1) {
-        char c;
-        if (read(STDIN_FILENO, &c, 1) != 1) break;
+        char c = 0;
+        int submit_buffer = 0;
         
-        // Handle Ctrl+C - abort
+        if (interactive) {
+            // Character-by-character input for interactive mode
+            if (read(STDIN_FILENO, &c, 1) != 1) break;
+        } else {
+            // Non-interactive: Read entire line
+            if (fgets(content_buffer, sizeof(content_buffer), stdin) == NULL) break;
+            
+            // Trim newline
+            int len = strlen(content_buffer);
+            while (len > 0 && (content_buffer[len-1] == '\n' || content_buffer[len-1] == '\r')) {
+                content_buffer[len-1] = '\0';
+                len--;
+            }
+            
+            submit_buffer = 1;
+        }
+        
+        if (submit_buffer) {
+             c = 14; // Simulate Ctrl+N to trigger submission logic
+        }
+
         if (c == 3) {
             printf("\n" ANSI_RED "^C - Aborting without saving" ANSI_RESET "\n");
             success = 0;
@@ -436,8 +461,8 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
                 memset(&header, 0, sizeof(header));
                 header.msg_type = MSG_REQUEST;
                 header.op_code = OP_SS_WRITE_UNLOCK;
-                strcpy(header.filename, filename);
-                strcpy(header.username, state->username);
+                safe_strncpy(header.filename, filename, sizeof(header.filename));
+                safe_strncpy(header.username, state->username, sizeof(header.username));
                 header.sentence_index = sentence_idx;
                 header.data_length = 0;
                 
@@ -517,8 +542,8 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
             memset(&header, 0, sizeof(header));
             header.msg_type = MSG_REQUEST;
             header.op_code = OP_SS_WRITE_WORD;
-            strcpy(header.filename, filename);
-            strcpy(header.username, state->username);
+            safe_strncpy(header.filename, filename, sizeof(header.filename));
+            safe_strncpy(header.username, state->username, sizeof(header.username));
             header.sentence_index = sentence_idx;
             
             size_t payload_len = snprintf(NULL, 0, "%d %s", word_idx, new_word) + 1;
@@ -592,7 +617,8 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
     }
     
     // Restore terminal mode
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    // Restore terminal mode
+    disable_raw_mode();
     
     safe_close_socket(&ss_socket);
     return success ? ERR_SUCCESS : ERR_FILE_OPERATION_FAILED;
@@ -921,9 +947,9 @@ int execute_move(ClientState* state, const char* filename, const char* foldernam
     memset(&header, 0, sizeof(header));
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_MOVE;
-    strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
-    strcpy(header.foldername, foldername);
+    safe_strncpy(header.username, state->username, sizeof(header.username));
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
+    safe_strncpy(header.foldername, foldername, sizeof(header.foldername));
     header.data_length = 0;
     
     send_message(state->nm_socket, &header, NULL);
@@ -1307,7 +1333,7 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
 
     /* Fetch current sentence content */
     init_message_header(&header, MSG_REQUEST, OP_SS_READ, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = sentence_idx;
 
     send_message(ss_socket, &header, NULL);
@@ -1325,29 +1351,62 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
     char* sentence_content = extract_sentence_by_index(content, sentence_idx);
     if (content) free(content);
 
-    /* Initialize editor */
-    EditorState* E = editor_init();
-    if (!E) {
-        if (sentence_content) free(sentence_content);
-        safe_close_socket(&ss_socket);
-        return ERR_FILE_OPERATION_FAILED;
+    char* new_content = NULL;
+    int should_save = 0;
+
+    if (isatty(STDIN_FILENO)) {
+        /* Interactive Mode: Run TUI Editor */
+        EditorState* E = editor_init();
+        if (!E) {
+            if (sentence_content) free(sentence_content);
+            safe_close_socket(&ss_socket);
+            return ERR_FILE_OPERATION_FAILED;
+        }
+
+        enable_raw_mode();
+        editor_load_content(E, sentence_content ? sentence_content : "");
+        editor_set_file_info(E, filename, sentence_idx, 1, state->username);
+        editor_set_status(E, "Editing sentence %d - Ctrl+S to save, Ctrl+Q to quit", sentence_idx);
+        
+        /* Run editor */
+        editor_run(E);
+
+        /* Get edited content */
+        new_content = editor_get_content(E);
+        should_save = E->save_requested;
+
+        disable_raw_mode();
+        editor_destroy(E);
+    } else {
+        /* Non-Interactive Mode: Read from Stdin */
+        // Read entire stdin content
+        // We can reuse read_file_content if we pass /dev/stdin mechanism or just implementation
+        // Since read_file_content uses fseek SEEK_END which might not work on pipe...
+        // We should implement a simple read-until-EOF loop.
+        
+        size_t cap = 1024;
+        size_t len = 0;
+        new_content = malloc(cap);
+        
+        if (new_content) {
+            char buf[1024];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
+                if (len + n >= cap) {
+                    cap *= 2;
+                    char* tmp = realloc(new_content, cap);
+                    if (!tmp) { free(new_content); new_content = NULL; break; }
+                    new_content = tmp;
+                }
+                memcpy(new_content + len, buf, n);
+                len += n;
+            }
+            if (new_content) new_content[len] = '\0';
+            should_save = 1;
+        }
     }
 
-    editor_enable_raw_mode(E);
-    editor_load_content(E, sentence_content ? sentence_content : "");
-    editor_set_file_info(E, filename, sentence_idx, 1, state->username);
-    editor_set_status(E, "Editing sentence %d - Ctrl+S to save, Ctrl+Q to quit", sentence_idx);
     if (sentence_content) free(sentence_content);
-
-    /* Run editor */
-    editor_run(E);
-
-    /* Get edited content */
-    char* new_content = editor_get_content(E);
-    int should_save = E->save_requested;
-
-    editor_disable_raw_mode(E);
-    editor_destroy(E);
 
     /* Reconnect to storage server (connection may have closed during edit) */
     int ss_socket2;
@@ -1361,7 +1420,7 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
     /* Save if requested */
     if (should_save && new_content) {
         init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_WORD, state->username);
-        strcpy(header.filename, filename);
+        safe_strncpy(header.filename, filename, sizeof(header.filename));
         header.sentence_index = sentence_idx;
 
         /* Send with word_idx=-1 to replace entire sentence content */
@@ -1443,7 +1502,7 @@ int execute_open(ClientState* state, const char* filename) {
         return ERR_FILE_OPERATION_FAILED;
     }
 
-    editor_enable_raw_mode(E);
+    enable_raw_mode();
     editor_load_content(E, content ? content : "(empty file)");
     editor_set_file_info(E, filename, -1, 0, NULL);
     E->read_only = 1;
@@ -1453,7 +1512,7 @@ int execute_open(ClientState* state, const char* filename) {
     /* Run editor (read-only viewing) */
     editor_run(E);
 
-    editor_disable_raw_mode(E);
+    disable_raw_mode();
     editor_destroy(E);
 
     return ERR_SUCCESS;

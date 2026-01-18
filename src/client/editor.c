@@ -117,28 +117,7 @@ void editor_destroy(EditorState* E) {
     free(E);
 }
 
-int editor_enable_raw_mode(EditorState* E) {
-    if (tcgetattr(STDIN_FILENO, &E->orig_termios) == -1) {
-        return -1;
-    }
 
-    struct termios raw = E->orig_termios;
-    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    raw.c_oflag &= ~(OPOST);
-    raw.c_cflag |= (CS8);
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-    raw.c_cc[VMIN] = 0;
-    raw.c_cc[VTIME] = 1; /* 100ms timeout */
-
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
-        return -1;
-    }
-    return 0;
-}
-
-void editor_disable_raw_mode(EditorState* E) {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &E->orig_termios);
-}
 
 /* Add a line to the editor */
 static void editor_append_line(EditorState* E, const char* s, int len) {
@@ -309,10 +288,27 @@ static void editor_move_cursor(EditorState* E, int key) {
             }
             break;
         case ARROW_UP:
-            if (E->cursor.row > 0) E->cursor.row--;
+            if (E->cursor.col >= E->screen_cols) {
+                E->cursor.col -= E->screen_cols;
+            } else if (E->cursor.row > 0) {
+                E->cursor.row--;
+                if (E->cursor.row < E->line_count) {
+                    E->cursor.col = strlen(E->lines[E->cursor.row]);
+                }
+            }
             break;
         case ARROW_DOWN:
-            if (E->cursor.row < E->line_count - 1) E->cursor.row++;
+            if (row) {
+                 int max_sub = (rowlen == 0) ? 0 : (rowlen - 1) / E->screen_cols;
+                 int curr_sub = E->cursor.col / E->screen_cols;
+                 
+                 if (curr_sub < max_sub) {
+                     E->cursor.col += E->screen_cols;
+                 } else if (E->cursor.row < E->line_count - 1) {
+                     E->cursor.row++;
+                     E->cursor.col = 0;
+                 }
+            }
             break;
     }
 

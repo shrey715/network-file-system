@@ -14,11 +14,17 @@ typedef struct {
 
 /* Available commands for tab completion */
 extern const char *COMMANDS[];
-extern const int COMMAND_COUNT;
 
+/* History management */
 void init_history(InputHistory *hist);
-void add_to_history(InputHistory *hist, const char *line);
-char *read_line_with_history(InputHistory *hist, const char *prompt);
+void add_history(InputHistory *hist, const char *line);
 void free_history(InputHistory *hist);
+
+/* Terminal control */
+int enable_raw_mode(void);
+void disable_raw_mode(void);
+
+/* Line reading */
+char *read_line_with_history(const char *prompt, InputHistory *hist);
 
 #endif

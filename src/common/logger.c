@@ -6,6 +6,9 @@ static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Global flag to enable/disable colorized console output. Default enabled. */
 int enable_colors = 1;
 
+/* Global flag for debug mode. Default disabled. */
+int debug_mode = 0;
+
 /**
  * log_message
  * @brief Simple timestamp + component + level + message logging.
@@ -20,6 +23,11 @@ int enable_colors = 1;
  * @param message Null-terminated message text to log (pre-formatted).
  */
 void log_message(const char* component, const char* level, const char* message) {
+    // Filter DEBUG messages if not in debug mode
+    if (!debug_mode && strcmp(level, "DEBUG") == 0) {
+        return;
+    }
+
     pthread_mutex_lock(&log_mutex);
     
     time_t now = time(NULL);
