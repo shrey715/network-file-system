@@ -1,5 +1,6 @@
 #include "common.h"
 #include "client.h"
+#include "editor.h"
 #include <ctype.h>
 #include <unistd.h>
 #include <termios.h>
@@ -1210,4 +1211,181 @@ int execute_denyrequest(ClientState* state, const char* filename, const char* us
     
     if (response) free(response);
     return header.error_code;
+}
+
+/**
+ * execute_edit
+ * @brief Open a sentence in the terminal editor for editing.
+ *
+ * Locks the sentence, fetches its content, opens the editor,
+ * and saves changes back when done.
+ *
+ * @param state Client state pointer.
+ * @param filename Target filename.
+ * @param sentence_idx Sentence index to edit (0-based).
+ * @return ERR_SUCCESS on success or an ERR_* code on failure.
+ */
+int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
+    int ss_socket;
+    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket);
+    if (result != ERR_SUCCESS) {
+        return result;
+    }
+
+    /* Lock sentence */
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_LOCK, state->username);
+    strcpy(header.filename, filename);
+    header.sentence_index = sentence_idx;
+
+    send_message(ss_socket, &header, NULL);
+
+    char* response = NULL;
+    recv_message(ss_socket, &header, &response);
+    if (response) free(response);
+
+    if (header.msg_type != MSG_ACK) {
+        PRINT_ERR("%s", get_error_message(header.error_code));
+        safe_close_socket(&ss_socket);
+        return header.error_code;
+    }
+
+    /* Fetch current sentence content */
+    init_message_header(&header, MSG_REQUEST, OP_SS_READ, state->username);
+    strcpy(header.filename, filename);
+    header.sentence_index = sentence_idx;
+
+    send_message(ss_socket, &header, NULL);
+
+    char* content = NULL;
+    recv_message(ss_socket, &header, &content);
+
+    if (header.msg_type != MSG_RESPONSE) {
+        if (content) free(content);
+        safe_close_socket(&ss_socket);
+        return header.error_code;
+    }
+
+    /* Initialize editor */
+    EditorState* E = editor_init();
+    if (!E) {
+        if (content) free(content);
+        safe_close_socket(&ss_socket);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+
+    editor_enable_raw_mode(E);
+    editor_load_content(E, content ? content : "");
+    editor_set_file_info(E, filename, sentence_idx, 1, state->username);
+    editor_set_status(E, "Editing sentence %d - Ctrl+S to save, Ctrl+Q to quit", sentence_idx);
+    if (content) free(content);
+
+    /* Run editor */
+    editor_run(E);
+
+    /* Get edited content */
+    char* new_content = editor_get_content(E);
+    int was_modified = E->modified;
+
+    editor_disable_raw_mode(E);
+    editor_destroy(E);
+
+    /* Save if modified */
+    if (was_modified && new_content) {
+        init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_WORD, state->username);
+        strcpy(header.filename, filename);
+        header.sentence_index = sentence_idx;
+
+        /* Send the full new content as replacement */
+        char payload[4096];
+        snprintf(payload, sizeof(payload), "0 %s", new_content);
+        header.data_length = strlen(payload);
+
+        send_message(ss_socket, &header, payload);
+        response = NULL;
+        recv_message(ss_socket, &header, &response);
+        if (response) free(response);
+
+        if (header.msg_type != MSG_ACK) {
+            PRINT_ERR("Save failed: %s", get_error_message(header.error_code));
+        }
+    }
+
+    if (new_content) free(new_content);
+
+    /* Unlock sentence */
+    init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_UNLOCK, state->username);
+    strcpy(header.filename, filename);
+    header.sentence_index = sentence_idx;
+
+    send_message(ss_socket, &header, NULL);
+    response = NULL;
+    recv_message(ss_socket, &header, &response);
+    if (response) free(response);
+
+    safe_close_socket(&ss_socket);
+
+    if (was_modified) {
+        PRINT_OK("Changes saved!");
+    } else {
+        printf("No changes made.\n");
+    }
+
+    return ERR_SUCCESS;
+}
+
+/**
+ * execute_open
+ * @brief Open a file in read-only mode using the terminal editor.
+ *
+ * This provides a nano-like viewing experience without locking.
+ *
+ * @param state Client state pointer.
+ * @param filename Target filename.
+ * @return ERR_SUCCESS on success or an ERR_* code on failure.
+ */
+int execute_open(ClientState* state, const char* filename) {
+    int ss_socket;
+    int result = get_storage_server_connection(state, filename, OP_READ, &ss_socket);
+    if (result != ERR_SUCCESS) {
+        return result;
+    }
+
+    /* Request file content */
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_SS_READ, state->username);
+    strcpy(header.filename, filename);
+
+    send_message(ss_socket, &header, NULL);
+
+    char* content = NULL;
+    recv_message(ss_socket, &header, &content);
+    safe_close_socket(&ss_socket);
+
+    if (header.msg_type != MSG_RESPONSE) {
+        PRINT_ERR("%s", get_error_message(header.error_code));
+        if (content) free(content);
+        return header.error_code;
+    }
+
+    /* Initialize editor in read-only mode */
+    EditorState* E = editor_init();
+    if (!E) {
+        if (content) free(content);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+
+    editor_enable_raw_mode(E);
+    editor_load_content(E, content ? content : "(empty file)");
+    editor_set_file_info(E, filename, -1, 0, NULL);
+    editor_set_status(E, "View mode - Ctrl+Q to quit");
+    if (content) free(content);
+
+    /* Run editor (read-only viewing) */
+    editor_run(E);
+
+    editor_disable_raw_mode(E);
+    editor_destroy(E);
+
+    return ERR_SUCCESS;
 }

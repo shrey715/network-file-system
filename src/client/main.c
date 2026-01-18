@@ -105,8 +105,12 @@ int main(int argc, char* argv[]) {
             printf("  file stream <filename>         - Stream file content\n");
             printf("  file exec <filename>           - Execute file as commands\n");
             printf("\n");
-            printf(ANSI_CYAN "Edit System:" ANSI_RESET "\n");
-            printf("  edit <filename> <idx>        - Edit sentence at index\n");
+            printf(ANSI_CYAN "Editor (Terminal UI):" ANSI_RESET "\n");
+            printf("  open <filename>              - Open file in viewer (Ctrl+Q to quit)\n");
+            printf("  nano <filename> <sentence>   - Edit sentence in nano-like editor\n");
+            printf("\n");
+            printf(ANSI_CYAN "Edit System (Legacy):" ANSI_RESET "\n");
+            printf("  edit <filename> <idx>        - Edit sentence (word-by-word)\n");
             printf("  edit undo <filename>         - Undo last change\n");
             printf("\n");
             printf(ANSI_CYAN "Folder System:" ANSI_RESET "\n");
@@ -261,6 +265,23 @@ int main(int argc, char* argv[]) {
                 } else {
                     PRINT_ERR("Usage: agent <filename> <prompt>");
                 }
+            }
+        }
+        else if (strcmp(command, "open") == 0) {
+            // OPEN command: open <filename>
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: open <filename>");
+            } else {
+                execute_open(&client_state, subcommand);
+            }
+        }
+        else if (strcmp(command, "nano") == 0) {
+            // NANO command: nano <filename> <sentence_idx>
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: nano <filename> <sentence_idx>");
+            } else {
+                int sentence_idx = atoi(arg1);
+                execute_edit(&client_state, subcommand, sentence_idx);
             }
         }
         else {
