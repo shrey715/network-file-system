@@ -124,6 +124,7 @@ int add_locked_file(const char* filename, const char* username, int sentence_idx
     }
     
     locked_files[slot].is_active = 1;
+    locked_files[slot].undo_saved = 0;  // Reset for new edit session
     
     if (slot >= locked_file_count) {
         locked_file_count = slot + 1;

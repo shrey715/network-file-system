@@ -92,11 +92,7 @@ int main(int argc, char* argv[]) {
         }
         
         if (strcmp(input, "help") == 0 || strcmp(input, "?") == 0) {
-            printf("\n");
-            printf(ANSI_BOLD ANSI_BRIGHT_WHITE "  ╭─────────────────────────────────╮\n");
-            printf("  │      " ANSI_TEAL "NFS Client Commands" ANSI_BRIGHT_WHITE "       │\n");
-            printf("  ╰─────────────────────────────────╯" ANSI_RESET "\n\n");
-            
+            printf("\n");           
             printf(ANSI_BOLD ANSI_SKY "  Files" ANSI_RESET ANSI_SLATE " ─────────────────────────\n" ANSI_RESET);
             printf(ANSI_DIM "    ls" ANSI_RESET " [-l]              List files\n");
             printf(ANSI_DIM "    cat" ANSI_RESET " <file>           Display content\n");
@@ -129,7 +125,7 @@ int main(int argc, char* argv[]) {
             printf(ANSI_DIM "    agent" ANSI_RESET " <file> <prompt> Generate with AI\n");
             printf("\n");
             
-            printf(ANSI_SLATE "  quit/exit/q " ANSI_RESET "Exit  " ANSI_TEAL "Tab" ANSI_RESET " Complete\n\n");
+            printf(ANSI_SLATE "  quit/exit/q " ANSI_RESET "Exit  " ANSI_TEAL);
             free(input);
             continue;
         }

@@ -583,6 +583,11 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
     
     // SPECIAL CASE: word_idx == -1 means replace entire sentence content
     if (word_idx == -1) {
+        // Save undo snapshot before first modification in this session
+        if (!locked_file->undo_saved) {
+            ss_save_undo(filename);
+            locked_file->undo_saved = 1;
+        }
         free(target_sentence->text);
         target_sentence->text = strdup(new_word);
         return ERR_SUCCESS;
@@ -919,15 +924,7 @@ int ss_write_unlock(const char* filename, int sentence_idx, const char* username
     }
     *dst = '\0';
     
-    // Save undo snapshot before overwriting file
-    if (ss_save_undo(filename) != ERR_SUCCESS) {
-        char msg[256];
-        snprintf(msg, sizeof(msg), 
-                 "Failed to create undo snapshot for '%s' during write unlock", 
-                 filename);
-        log_message("SS", "WARN", msg);
-        // Continue with write despite undo failure
-    }
+    // Note: Undo snapshot is now saved in ss_write_word before first modification
     
     // Write back properly formatted content with decoded newlines
     int write_result = write_file_content(filepath, decoded_content);
