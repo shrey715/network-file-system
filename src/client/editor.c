@@ -85,6 +85,7 @@ EditorState* editor_init(void) {
     E->cursor.row = 0;
     E->cursor.col = 0;
     E->row_offset = 0;
+    E->sub_row_offset = 0;
     E->col_offset = 0;
     E->filename = NULL;
     E->modified = 0;
@@ -391,17 +392,82 @@ static void editor_insert_newline(EditorState* E) {
 
 /* Scroll to keep cursor visible */
 static void editor_scroll(EditorState* E) {
+    if (E->cursor.row < 0) E->cursor.row = 0;
+    if (E->cursor.row >= E->line_count) E->cursor.row = E->line_count - 1;
+
+    // 1. Initial Check: If cursor is above the top visible line, scroll up
     if (E->cursor.row < E->row_offset) {
         E->row_offset = E->cursor.row;
+        E->sub_row_offset = 0;
+    } else if (E->cursor.row == E->row_offset) {
+        // Cursor is on the top line. Ensure sub-row is visible.
+        int cursor_sub_row = E->cursor.col / E->screen_cols;
+        if (cursor_sub_row < E->sub_row_offset) {
+            E->sub_row_offset = cursor_sub_row;
+        }
     }
-    if (E->cursor.row >= E->row_offset + E->screen_rows) {
-        E->row_offset = E->cursor.row - E->screen_rows + 1;
-    }
-    if (E->cursor.col < E->col_offset) {
-        E->col_offset = E->cursor.col;
-    }
-    if (E->cursor.col >= E->col_offset + E->screen_cols) {
-        E->col_offset = E->cursor.col - E->screen_cols + 1;
+
+    // 2. Check if cursor is below the bottom visible part
+    // We simulate rendering to see if the cursor falls within the screen.
+    // If not, we scroll down (advance row_offset/sub_row_offset) until it fits.
+    
+    while (1) {
+        int screen_y = 0;
+        int current_row = E->row_offset;
+        int current_sub = E->sub_row_offset;
+        int cursor_is_visible = 0;
+
+        // Simulate drawing screen rows
+        while (screen_y < E->screen_rows && current_row < E->line_count) {
+            char* line = E->lines[current_row];
+            int len = strlen(line);
+            int total_subs = (len == 0) ? 1 : (len + E->screen_cols - 1) / E->screen_cols;
+            
+            // Check if we hit the cursor row
+            if (current_row == E->cursor.row) {
+                int cursor_sub = E->cursor.col / E->screen_cols;
+                
+                // Cursor must be on or after the current visible sub-row
+                if (cursor_sub >= current_sub) {
+                    // Check if the specific sub-row of the cursor fits on screen
+                    int v_offset = cursor_sub - current_sub;
+                    if (screen_y + v_offset < E->screen_rows) {
+                        cursor_is_visible = 1;
+                    }
+                }
+                break; // Found the row, stop simulation
+            }
+
+            // Advance visible area by number of sub-rows remaining in this line
+            int remaining_subs = total_subs - current_sub;
+            screen_y += remaining_subs;
+            
+            // Move to next line
+            current_row++;
+            current_sub = 0;
+        }
+
+        if (cursor_is_visible) break;
+
+        // Cursor not visible, scroll down one visual line
+        char* line = E->lines[E->row_offset];
+        int len = strlen(line);
+        int total_top_subs = (len == 0) ? 1 : (len + E->screen_cols - 1) / E->screen_cols;
+
+        E->sub_row_offset++;
+        if (E->sub_row_offset >= total_top_subs) {
+            E->row_offset++;
+            E->sub_row_offset = 0;
+        }
+        
+        // Safety: If we scrolled past cursor (shouldn't happen), reset strict
+        if (E->row_offset > E->cursor.row) {
+             E->row_offset = E->cursor.row;
+             E->sub_row_offset = E->cursor.col / E->screen_cols; 
+             // Align so cursor is exactly at top to be safe, though this might be aggressive
+             // But actually above logic should catch it before passing.
+             break;
+        }
     }
 }
 
@@ -418,10 +484,7 @@ static void editor_draw(EditorState* E) {
     /* Draw lines with word wrapping */
     int screen_y = 0;
     int file_line = E->row_offset;
-    int line_sub_row = 0;  // For wrapped lines, which sub-row we're on
-    
-    // Skip sub-rows for row_offset if the first visible line is wrapped
-    // (simplified: assume we start at beginning of visible content)
+    int line_sub_row = E->sub_row_offset;  // Start exactly where scroll says
     
     while (screen_y < E->screen_rows) {
         if (file_line < E->line_count) {

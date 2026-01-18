@@ -49,7 +49,8 @@ typedef struct {
 
   /* Cursor */
   CursorPos cursor;
-  int row_offset; /* Scroll offset */
+  int row_offset;     /* Scroll offset */
+  int sub_row_offset; /* Vertical scroll within a wrapped line */
   int col_offset;
 
   /* File info */
