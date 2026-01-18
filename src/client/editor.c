@@ -452,7 +452,7 @@ static void editor_draw(EditorState* E) {
 
     /* Help line */
     ab_append(&ab, CYAN, strlen(CYAN));
-    const char* help = "^S Save | ^Q Quit | ^Z Undo";
+    const char* help = E->read_only ? "^Q Quit" : "^S Save | ^Q Quit | ^Z Undo";
     ab_append(&ab, help, strlen(help));
     ab_append(&ab, ESC "[K" RESET, 3 + strlen(RESET));
 
