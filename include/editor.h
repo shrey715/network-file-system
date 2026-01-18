@@ -65,6 +65,8 @@ typedef struct {
   EditorMode mode;
   char status_msg[256];
   int quit_requested;
+  int save_requested;
+  int read_only;
 } EditorState;
 
 /**

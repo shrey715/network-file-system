@@ -1285,13 +1285,13 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
 
     /* Get edited content */
     char* new_content = editor_get_content(E);
-    int was_modified = E->modified;
+    int should_save = E->save_requested;
 
     editor_disable_raw_mode(E);
     editor_destroy(E);
 
     /* Save if modified */
-    if (was_modified && new_content) {
+    if (should_save && new_content) {
         init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_WORD, state->username);
         strcpy(header.filename, filename);
         header.sentence_index = sentence_idx;
@@ -1325,10 +1325,10 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
 
     safe_close_socket(&ss_socket);
 
-    if (was_modified) {
+    if (should_save) {
         PRINT_OK("Changes saved!");
     } else {
-        printf("No changes made.\n");
+        printf("No changes saved.\n");
     }
 
     return ERR_SUCCESS;
@@ -1378,6 +1378,7 @@ int execute_open(ClientState* state, const char* filename) {
     editor_enable_raw_mode(E);
     editor_load_content(E, content ? content : "(empty file)");
     editor_set_file_info(E, filename, -1, 0, NULL);
+    E->read_only = 1;
     editor_set_status(E, "View mode - Ctrl+Q to quit");
     if (content) free(content);
 

@@ -92,6 +92,8 @@ EditorState* editor_init(void) {
     E->mode = MODE_INSERT;
     E->status_msg[0] = '\0';
     E->quit_requested = 0;
+    E->save_requested = 0;
+    E->read_only = 0;
 
     if (get_window_size(&E->screen_rows, &E->screen_cols) == -1) {
         E->screen_rows = 24;
@@ -485,8 +487,13 @@ static void editor_process_key(EditorState* E) {
             break;
 
         case CTRL_KEY('s'):
-            editor_set_status(E, "Saving... (not implemented in standalone mode)");
-            E->modified = 0;
+            if (E->read_only) {
+                editor_set_status(E, "Read-only mode - cannot save");
+            } else {
+                E->save_requested = 1;
+                E->quit_requested = 1;
+                editor_set_status(E, "Saving...");
+            }
             break;
 
         case CTRL_KEY('z'):
@@ -521,17 +528,19 @@ static void editor_process_key(EditorState* E) {
             break;
 
         case '\r': /* Enter */
-            editor_insert_newline(E);
+            if (!E->read_only) editor_insert_newline(E);
             break;
 
         case 127: /* Backspace */
         case CTRL_KEY('h'):
-            editor_delete_char(E);
+            if (!E->read_only) editor_delete_char(E);
             break;
 
         case DEL_KEY:
-            editor_move_cursor(E, ARROW_RIGHT);
-            editor_delete_char(E);
+            if (!E->read_only) {
+                editor_move_cursor(E, ARROW_RIGHT);
+                editor_delete_char(E);
+            }
             break;
 
         case CTRL_KEY('l'):
@@ -539,7 +548,7 @@ static void editor_process_key(EditorState* E) {
             break;
 
         default:
-            if (!iscntrl(c)) {
+            if (!iscntrl(c) && !E->read_only) {
                 editor_insert_char(E, c);
             }
             break;
@@ -556,5 +565,8 @@ void editor_run(EditorState* E) {
         editor_process_key(E);
     }
 
-    write(STDOUT_FILENO, CLEAR_SCREEN CURSOR_HOME, strlen(CLEAR_SCREEN CURSOR_HOME));
+    /* Restore screen - move cursor below content and reset */
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;1H\r\n", E->screen_rows + 2);
+    write(STDOUT_FILENO, buf, strlen(buf));
 }
