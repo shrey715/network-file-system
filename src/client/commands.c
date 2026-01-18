@@ -6,6 +6,61 @@
 #include <termios.h>
 
 /**
+ * extract_sentence_by_index
+ * @brief Extract a specific sentence from content by index.
+ *
+ * Sentences are delimited by '.', '!', or '?'.
+ * Caller must free the returned string.
+ *
+ * @param content Full file content.
+ * @param idx 0-based sentence index.
+ * @return Allocated string with sentence content, or NULL if not found.
+ */
+static char* extract_sentence_by_index(const char* content, int idx) {
+    if (!content || idx < 0) return NULL;
+    
+    const char* start = content;
+    int current_idx = 0;
+    
+    while (*start && current_idx < idx) {
+        /* Find end of current sentence */
+        while (*start && *start != '.' && *start != '!' && *start != '?') {
+            start++;
+        }
+        if (*start) start++; /* Skip delimiter */
+        while (*start && isspace((unsigned char)*start)) start++; /* Skip whitespace */
+        current_idx++;
+    }
+    
+    if (current_idx != idx || !*start) {
+        /* If content is empty and idx is 0, return empty string */
+        if (idx == 0 && strlen(content) == 0) {
+            return strdup("");
+        }
+        /* If no sentences but content exists and idx is 0 */
+        if (idx == 0 && strlen(content) > 0) {
+            return strdup(content);
+        }
+        return NULL;
+    }
+    
+    /* Find end of this sentence */
+    const char* end = start;
+    while (*end && *end != '.' && *end != '!' && *end != '?') {
+        end++;
+    }
+    if (*end) end++; /* Include delimiter */
+    
+    size_t len = end - start;
+    char* result = malloc(len + 1);
+    if (result) {
+        strncpy(result, start, len);
+        result[len] = '\0';
+    }
+    return result;
+}
+
+/**
  * send_nm_request_and_get_response
  * @brief Helper to send a request to NM and receive response.
  *
@@ -1266,19 +1321,23 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
         return header.error_code;
     }
 
+    /* Extract just the sentence at sentence_idx */
+    char* sentence_content = extract_sentence_by_index(content, sentence_idx);
+    if (content) free(content);
+
     /* Initialize editor */
     EditorState* E = editor_init();
     if (!E) {
-        if (content) free(content);
+        if (sentence_content) free(sentence_content);
         safe_close_socket(&ss_socket);
         return ERR_FILE_OPERATION_FAILED;
     }
 
     editor_enable_raw_mode(E);
-    editor_load_content(E, content ? content : "");
+    editor_load_content(E, sentence_content ? sentence_content : "");
     editor_set_file_info(E, filename, sentence_idx, 1, state->username);
     editor_set_status(E, "Editing sentence %d - Ctrl+S to save, Ctrl+Q to quit", sentence_idx);
-    if (content) free(content);
+    if (sentence_content) free(sentence_content);
 
     /* Run editor */
     editor_run(E);
