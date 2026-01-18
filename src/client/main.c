@@ -91,50 +91,39 @@ int main(int argc, char* argv[]) {
             break;
         }
         
-        if (strcmp(input, "help") == 0) {
+        if (strcmp(input, "help") == 0 || strcmp(input, "?") == 0) {
             printf("\n");
             printf(ANSI_BOLD "Available commands:" ANSI_RESET "\n");
             printf("\n");
-            printf(ANSI_CYAN "File System:" ANSI_RESET "\n");
-            printf("  file create <filename>         - Create new file\n");
-            printf("  file delete <filename>         - Delete file\n");
-            printf("  file read <filename>           - Read file content\n");
-            printf("  file info <filename>           - Get file information\n");
-            printf("  file list [-a] [-l]            - List files\n");
-            printf("  file move <file> <folder>      - Move file to folder\n");
-            printf("  file stream <filename>         - Stream file content\n");
-            printf("  file exec <filename>           - Execute file as commands\n");
+            printf(ANSI_CYAN "Files:" ANSI_RESET "\n");
+            printf("  ls [-l]                      - List files\n");
+            printf("  cat <file>                   - Display file content\n");
+            printf("  touch <file>                 - Create new file\n");
+            printf("  rm <file>                    - Delete file\n");
+            printf("  mv <src> <dst>               - Move/rename file\n");
+            printf("  mkdir <dir>                  - Create directory\n");
+            printf("  info <file>                  - File metadata\n");
             printf("\n");
             printf(ANSI_CYAN "Editor:" ANSI_RESET "\n");
-            printf("  open <filename>              - View file (Ctrl+Q to quit)\n");
-            printf("  edit <filename> <sentence>   - Edit sentence in terminal editor\n");
-            printf("  undo <filename>              - Undo last change\n");
-            printf("\n");
-            printf(ANSI_CYAN "Folder System:" ANSI_RESET "\n");
-            printf("  folder create <name>         - Create new folder\n");
-            printf("  folder view [path]           - List folder contents\n");
+            printf("  open <file>                  - View file (read-only)\n");
+            printf("  edit <file> <idx>            - Edit sentence\n");
+            printf("  undo <file>                  - Undo last change\n");
             printf("\n");
             printf(ANSI_CYAN "Version Control:" ANSI_RESET "\n");
-            printf("  version create <file> <tag>  - Create checkpoint\n");
-            printf("  version view <file> <tag>    - View checkpoint content\n");
-            printf("  version revert <file> <tag>  - Revert to checkpoint\n");
-            printf("  version list <file>          - List all checkpoints\n");
+            printf("  commit <file> <tag>          - Create checkpoint\n");
+            printf("  log <file>                   - List checkpoints\n");
+            printf("  checkout <file> <tag>        - Revert to checkpoint\n");
+            printf("  diff <file> <tag>            - View checkpoint\n");
             printf("\n");
             printf(ANSI_CYAN "Access Control:" ANSI_RESET "\n");
-            printf("  access grant <file> <user> [-R|-W]   - Grant access\n");
-            printf("  access revoke <file> <user>          - Revoke access\n");
-            printf("  access request <file> [-R] [-W]      - Request access\n");
-            printf("  access viewrequests <file>           - View requests (owner)\n");
-            printf("  access approve <file> <user>         - Approve request (owner)\n");
-            printf("  access deny <file> <user>            - Deny request (owner)\n");
+            printf("  chmod <file> <user> [r][w]   - Grant access\n");
+            printf("  acl <file>                   - View access list\n");
             printf("\n");
-            printf(ANSI_CYAN "User System:" ANSI_RESET "\n");
-            printf("  user list                    - List all users\n");
+            printf(ANSI_CYAN "Other:" ANSI_RESET "\n");
+            printf("  agent <file> <prompt>        - Generate with AI\n");
             printf("\n");
-            printf(ANSI_CYAN "AI Agent:" ANSI_RESET "\n");
-            printf("  agent <filename> <prompt>    - Generate file using AI\n");
-            printf("    Example: agent hello.py Create a Python hello world script\n");
-            printf("\nquit/exit - Exit client\n\n");
+            printf("quit/exit/q - Exit client\n");
+            printf("Tab - Command completion\n\n");
             free(input);
             continue;
         }
@@ -146,31 +135,66 @@ int main(int argc, char* argv[]) {
             continue;
         }
         
-        // Execute commands
-        if (strcmp(command, "file") == 0) {
-            if (strcmp(subcommand, "create") == 0) {
-                execute_create(&client_state, arg1);
-            } else if (strcmp(subcommand, "delete") == 0) {
-                execute_delete(&client_state, arg1);
-            } else if (strcmp(subcommand, "read") == 0) {
-                execute_read(&client_state, arg1);
-            } else if (strcmp(subcommand, "info") == 0) {
-                execute_info(&client_state, arg1);
-            } else if (strcmp(subcommand, "list") == 0) {
-                execute_view(&client_state, flags);
-            } else if (strcmp(subcommand, "move") == 0) {
-                execute_move(&client_state, arg1, arg2);
-            } else if (strcmp(subcommand, "stream") == 0) {
-                execute_stream(&client_state, arg1);
-            } else if (strcmp(subcommand, "exec") == 0) {
-                execute_exec(&client_state, arg1);
+        // Execute commands - Unix-style
+        
+        /* File operations */
+        if (strcmp(command, "ls") == 0) {
+            execute_view(&client_state, flags);
+        }
+        else if (strcmp(command, "cat") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: cat <file>");
             } else {
-                PRINT_ERR("Unknown file subcommand '%s'", subcommand);
+                execute_read(&client_state, subcommand);
+            }
+        }
+        else if (strcmp(command, "touch") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: touch <file>");
+            } else {
+                execute_create(&client_state, subcommand);
+            }
+        }
+        else if (strcmp(command, "rm") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: rm <file>");
+            } else {
+                execute_delete(&client_state, subcommand);
+            }
+        }
+        else if (strcmp(command, "mv") == 0) {
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: mv <src> <dst>");
+            } else {
+                execute_move(&client_state, subcommand, arg1);
+            }
+        }
+        else if (strcmp(command, "mkdir") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: mkdir <dir>");
+            } else {
+                execute_createfolder(&client_state, subcommand);
+            }
+        }
+        else if (strcmp(command, "info") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: info <file>");
+            } else {
+                execute_info(&client_state, subcommand);
+            }
+        }
+        
+        /* Editor */
+        else if (strcmp(command, "open") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: open <file>");
+            } else {
+                execute_open(&client_state, subcommand);
             }
         }
         else if (strcmp(command, "edit") == 0) {
             if (subcommand[0] == '\0' || arg1[0] == '\0') {
-                PRINT_ERR("Usage: edit <filename> <sentence_idx>");
+                PRINT_ERR("Usage: edit <file> <idx>");
             } else {
                 int sentence_idx = atoi(arg1);
                 execute_edit(&client_state, subcommand, sentence_idx);
@@ -178,106 +202,78 @@ int main(int argc, char* argv[]) {
         }
         else if (strcmp(command, "undo") == 0) {
             if (subcommand[0] == '\0') {
-                PRINT_ERR("Usage: undo <filename>");
+                PRINT_ERR("Usage: undo <file>");
             } else {
                 execute_undo(&client_state, subcommand);
             }
         }
-        else if (strcmp(command, "folder") == 0) {
-            if (strcmp(subcommand, "create") == 0) {
-                execute_createfolder(&client_state, arg1);
-            } else if (strcmp(subcommand, "view") == 0) {
-                execute_viewfolder(&client_state, arg1);
+        
+        /* Version control (git-style) */
+        else if (strcmp(command, "commit") == 0) {
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: commit <file> <tag>");
             } else {
-                PRINT_ERR("Unknown folder subcommand '%s'", subcommand);
+                execute_checkpoint(&client_state, subcommand, arg1);
             }
         }
-        else if (strcmp(command, "version") == 0) {
-            if (strcmp(subcommand, "create") == 0) {
-                if (!arg1[0] || !arg2[0]) {
-                    PRINT_ERR("version create requires <filename> <tag>");
-                } else {
-                    execute_checkpoint(&client_state, arg1, arg2);
-                }
-            } else if (strcmp(subcommand, "view") == 0) {
-                if (!arg1[0] || !arg2[0]) {
-                    PRINT_ERR("version view requires <filename> <tag>");
-                } else {
-                    execute_viewcheckpoint(&client_state, arg1, arg2);
-                }
-            } else if (strcmp(subcommand, "revert") == 0) {
-                if (!arg1[0] || !arg2[0]) {
-                    PRINT_ERR("version revert requires <filename> <tag>");
-                } else {
-                    execute_revert(&client_state, arg1, arg2);
-                }
-            } else if (strcmp(subcommand, "list") == 0) {
-                if (!arg1[0]) {
-                    PRINT_ERR("version list requires <filename>");
-                } else {
-                    execute_listcheckpoints(&client_state, arg1);
-                }
+        else if (strcmp(command, "log") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: log <file>");
             } else {
-                PRINT_ERR("Unknown version subcommand '%s'", subcommand);
+                execute_listcheckpoints(&client_state, subcommand);
             }
         }
-        else if (strcmp(command, "access") == 0) {
-            if (strcmp(subcommand, "grant") == 0) {
-                // flags: 0x01 = read, 0x02 = write
-                if (!flags) flags = 0x01; // Default to read-only
+        else if (strcmp(command, "checkout") == 0) {
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: checkout <file> <tag>");
+            } else {
+                execute_revert(&client_state, subcommand, arg1);
+            }
+        }
+        else if (strcmp(command, "diff") == 0) {
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: diff <file> <tag>");
+            } else {
+                execute_viewcheckpoint(&client_state, subcommand, arg1);
+            }
+        }
+        
+        /* Access control */
+        else if (strcmp(command, "chmod") == 0) {
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: chmod <file> <user> [r][w]");
+            } else {
+                // Default to read-only if no flags
+                if (!flags) flags = 0x01;
                 int read = (flags & 0x01) ? 1 : 0;
                 int write = (flags & 0x02) ? 1 : 0;
-                // Write access implies read access
                 if (write) read = 1;
-                execute_addaccess(&client_state, arg1, arg2, read, write);
-            } else if (strcmp(subcommand, "revoke") == 0) {
-                execute_remaccess(&client_state, arg1, arg2);
-            } else if (strcmp(subcommand, "request") == 0) {
-                execute_requestaccess(&client_state, arg1, flags);
-            } else if (strcmp(subcommand, "viewrequests") == 0) {
-                execute_viewrequests(&client_state, arg1);
-            } else if (strcmp(subcommand, "approve") == 0) {
-                execute_approverequest(&client_state, arg1, arg2);
-            } else if (strcmp(subcommand, "deny") == 0) {
-                execute_denyrequest(&client_state, arg1, arg2);
-            } else {
-                PRINT_ERR("Unknown access subcommand '%s'", subcommand);
+                execute_addaccess(&client_state, subcommand, arg1, read, write);
             }
         }
-        else if (strcmp(command, "user") == 0) {
-            if (strcmp(subcommand, "list") == 0) {
-                execute_list(&client_state);
-            } else {
-                PRINT_ERR("Unknown user subcommand '%s'", subcommand);
-            }
-        }
-        else if (strcmp(command, "agent") == 0) {
-            // AGENT command: agent <filename> <prompt...>
-            // The filename is in subcommand, and the prompt starts from arg1
-            // We need to capture the rest of the line as the prompt
+        else if (strcmp(command, "acl") == 0) {
             if (subcommand[0] == '\0') {
-                PRINT_ERR("Usage: agent <filename> <prompt>");
+                PRINT_ERR("Usage: acl <file>");
             } else {
-                // Reconstruct the full prompt from arg1, arg2, and remaining input
-                // Since parser only captures 2 args, we need to get the rest of the line
+                execute_info(&client_state, subcommand);
+            }
+        }
+        
+        /* AI Agent */
+        else if (strcmp(command, "agent") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: agent <file> <prompt>");
+            } else {
                 const char* prompt_start = strstr(input, subcommand) + strlen(subcommand);
                 while (*prompt_start == ' ' || *prompt_start == '\t') prompt_start++;
-                
                 if (strlen(prompt_start) > 0) {
                     execute_agent(&client_state, subcommand, prompt_start);
                 } else {
-                    PRINT_ERR("Usage: agent <filename> <prompt>");
+                    PRINT_ERR("Usage: agent <file> <prompt>");
                 }
             }
         }
-        else if (strcmp(command, "open") == 0) {
-            // OPEN command: open <filename>
-            if (subcommand[0] == '\0') {
-                PRINT_ERR("Usage: open <filename>");
-            } else {
-                execute_open(&client_state, subcommand);
-            }
-        }
+        
         else {
             PRINT_ERR("Unknown command '%s'", command);
             printf("Type 'help' for available commands\n");

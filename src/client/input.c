@@ -10,6 +10,37 @@
 static struct termios orig_termios;
 static int raw_mode_enabled = 0;
 
+/* Command registry for tab completion */
+const char* COMMANDS[] = {
+    "acl", "agent", "cat", "checkout", "chmod", "commit",
+    "diff", "edit", "exit", "help", "info", "log",
+    "ls", "mkdir", "mv", "open", "quit", "rm", "touch", "undo"
+};
+const int COMMAND_COUNT = sizeof(COMMANDS) / sizeof(COMMANDS[0]);
+
+/**
+ * find_first_prefix_match
+ * @brief Binary search to find index of first command matching prefix.
+ *
+ * @param prefix Prefix to match.
+ * @param prefix_len Length of prefix.
+ * @return Index of first match, or -1 if none.
+ */
+static int find_first_prefix_match(const char* prefix, int prefix_len) {
+    int lo = 0, hi = COMMAND_COUNT - 1, result = -1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        int cmp = strncmp(COMMANDS[mid], prefix, prefix_len);
+        if (cmp >= 0) {
+            if (cmp == 0) result = mid;
+            hi = mid - 1;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    return result;
+}
+
 /**
  * disable_raw_mode
  * @brief Restore terminal attributes to their original state if raw mode
@@ -381,6 +412,63 @@ char* read_line_with_history(InputHistory* hist, const char* prompt) {
                 cursor_pos++;
             }
             fflush(stdout);
+            continue;
+        }
+        
+        // Handle Tab (command completion)
+        if (c == '\t') {
+            // Find the start of the current word
+            int word_start = 0;
+            for (int i = cursor_pos - 1; i >= 0; i--) {
+                if (buffer[i] == ' ') {
+                    word_start = i + 1;
+                    break;
+                }
+            }
+            
+            // Extract prefix to match
+            char prefix[MAX_INPUT_LENGTH];
+            int prefix_len = cursor_pos - word_start;
+            strncpy(prefix, buffer + word_start, prefix_len);
+            prefix[prefix_len] = '\0';
+            
+            // Only complete commands (first word)
+            if (word_start == 0 && prefix_len > 0) {
+                // Use binary search to find first match
+                int first_match = find_first_prefix_match(prefix, prefix_len);
+                
+                if (first_match >= 0) {
+                    // Count matches by scanning forward from first match
+                    int match_count = 0;
+                    for (int i = first_match; i < COMMAND_COUNT && 
+                         strncmp(COMMANDS[i], prefix, prefix_len) == 0; i++) {
+                        match_count++;
+                    }
+                    
+                    if (match_count == 1) {
+                        // Unique match - complete it
+                        const char* match = COMMANDS[first_match];
+                        int add_len = strlen(match) - prefix_len;
+                        if (buf_len + add_len < MAX_INPUT_LENGTH - 1) {
+                            strcpy(buffer + cursor_pos, match + prefix_len);
+                            strcat(buffer, " ");
+                            buf_len = strlen(buffer);
+                            cursor_pos = buf_len;
+                            redraw_line(prompt, buffer, cursor_pos);
+                        }
+                    } else {
+                        // Multiple matches - show them
+                        printf("\n");
+                        for (int i = first_match; i < COMMAND_COUNT && 
+                             strncmp(COMMANDS[i], prefix, prefix_len) == 0; i++) {
+                            printf("%s  ", COMMANDS[i]);
+                        }
+                        printf("\n");
+                        printf("%s%s", prompt, buffer);
+                        fflush(stdout);
+                    }
+                }
+            }
             continue;
         }
         
