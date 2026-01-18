@@ -25,8 +25,24 @@ clean:
 	rm -f name_server storage_server client
 	rm -f src/*/*.o
 	rm -rf data/* logs/*
+	rm -f tests/test_*
 
-test: all
-	./tests/run_tests.sh
+# Test targets
+test: test_piece_table test_document test_editor
+	@echo ""
+	@echo "=== Running All Tests ==="
+	./tests/test_piece_table
+	./tests/test_document
+	./tests/test_editor
+	@echo "=== All Tests Passed ==="
 
-.PHONY: all clean test
+test_piece_table: tests/piece_table_tests.c src/storage_server/piece_table.c
+	$(CC) $(CFLAGS) -o tests/test_piece_table tests/piece_table_tests.c src/storage_server/piece_table.c $(LDFLAGS)
+
+test_document: tests/document_tests.c src/storage_server/document.c src/storage_server/piece_table.c
+	$(CC) $(CFLAGS) -o tests/test_document tests/document_tests.c src/storage_server/document.c src/storage_server/piece_table.c $(LDFLAGS)
+
+test_editor: tests/editor_tests.c src/client/editor.c
+	$(CC) $(CFLAGS) -o tests/test_editor tests/editor_tests.c src/client/editor.c $(LDFLAGS)
+
+.PHONY: all clean test test_piece_table test_document test_editor
