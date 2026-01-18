@@ -20,6 +20,8 @@
 #define CURSOR_HOME ESC "[H"
 #define CURSOR_HIDE ESC "[?25l"
 #define CURSOR_SHOW ESC "[?25h"
+#define ALT_SCREEN_ON ESC "[?1049h"
+#define ALT_SCREEN_OFF ESC "[?1049l"
 #define INVERT ESC "[7m"
 #define RESET ESC "[0m"
 #define BOLD ESC "[1m"
@@ -558,6 +560,8 @@ static void editor_process_key(EditorState* E) {
 void editor_run(EditorState* E) {
     if (!E) return;
 
+    /* Enter alternate screen buffer (like nano/vim) */
+    write(STDOUT_FILENO, ALT_SCREEN_ON, strlen(ALT_SCREEN_ON));
     write(STDOUT_FILENO, CLEAR_SCREEN CURSOR_HOME, strlen(CLEAR_SCREEN CURSOR_HOME));
 
     while (!E->quit_requested) {
@@ -565,6 +569,6 @@ void editor_run(EditorState* E) {
         editor_process_key(E);
     }
 
-    /* Clear screen and restore cursor on exit (like nano/vim) */
-    write(STDOUT_FILENO, CLEAR_SCREEN CURSOR_HOME, strlen(CLEAR_SCREEN CURSOR_HOME));
+    /* Exit alternate screen buffer - restores original terminal content */
+    write(STDOUT_FILENO, ALT_SCREEN_OFF, strlen(ALT_SCREEN_OFF));
 }
