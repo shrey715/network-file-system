@@ -22,6 +22,9 @@
 // ============ ANSI COLOR CODES ============
 #define ANSI_RESET "\033[0m"
 #define ANSI_BOLD "\033[1m"
+#define ANSI_DIM "\033[2m"
+#define ANSI_ITALIC "\033[3m"
+#define ANSI_UNDERLINE "\033[4m"
 
 // Foreground colors
 #define ANSI_BLACK "\033[30m"
@@ -43,6 +46,25 @@
 #define ANSI_BRIGHT_CYAN "\033[96m"
 #define ANSI_BRIGHT_WHITE "\033[97m"
 
+// Modern 256-color palette (softer, more aesthetic)
+#define ANSI_TEAL "\033[38;5;38m"
+#define ANSI_CORAL "\033[38;5;209m"
+#define ANSI_LAVENDER "\033[38;5;183m"
+#define ANSI_MINT "\033[38;5;121m"
+#define ANSI_PEACH "\033[38;5;216m"
+#define ANSI_SKY "\033[38;5;117m"
+#define ANSI_GOLD "\033[38;5;220m"
+#define ANSI_ROSE "\033[38;5;211m"
+#define ANSI_SLATE "\033[38;5;245m"
+
+// Box drawing and UI symbols
+#define UI_ARROW "→"
+#define UI_CHECK "✓"
+#define UI_CROSS "✗"
+#define UI_DOT "•"
+#define UI_STAR "★"
+#define UI_PROMPT "❯"
+
 // Global toggle to enable/disable colors at runtime. Define in one C file.
 extern int enable_colors;
 
@@ -50,7 +72,7 @@ extern int enable_colors;
 #define PRINT_ERR(fmt, ...)                                                    \
   do {                                                                         \
     if (enable_colors)                                                         \
-      printf(ANSI_BRIGHT_RED "Error: " fmt ANSI_RESET "\n", ##__VA_ARGS__);    \
+      printf(ANSI_CORAL UI_CROSS " " fmt ANSI_RESET "\n", ##__VA_ARGS__);      \
     else                                                                       \
       printf("Error: " fmt "\n", ##__VA_ARGS__);                               \
   } while (0)
@@ -58,7 +80,7 @@ extern int enable_colors;
 #define PRINT_OK(fmt, ...)                                                     \
   do {                                                                         \
     if (enable_colors)                                                         \
-      printf(ANSI_GREEN fmt ANSI_RESET "\n", ##__VA_ARGS__);                   \
+      printf(ANSI_MINT UI_CHECK " " fmt ANSI_RESET "\n", ##__VA_ARGS__);       \
     else                                                                       \
       printf(fmt "\n", ##__VA_ARGS__);                                         \
   } while (0)
@@ -66,7 +88,7 @@ extern int enable_colors;
 #define PRINT_WARN(fmt, ...)                                                   \
   do {                                                                         \
     if (enable_colors)                                                         \
-      printf(ANSI_YELLOW fmt ANSI_RESET "\n", ##__VA_ARGS__);                  \
+      printf(ANSI_GOLD "! " fmt ANSI_RESET "\n", ##__VA_ARGS__);               \
     else                                                                       \
       printf(fmt "\n", ##__VA_ARGS__);                                         \
   } while (0)
@@ -74,7 +96,7 @@ extern int enable_colors;
 #define PRINT_INFO(fmt, ...)                                                   \
   do {                                                                         \
     if (enable_colors)                                                         \
-      printf(ANSI_CYAN fmt ANSI_RESET "\n", ##__VA_ARGS__);                    \
+      printf(ANSI_SKY fmt ANSI_RESET "\n", ##__VA_ARGS__);                     \
     else                                                                       \
       printf(fmt "\n", ##__VA_ARGS__);                                         \
   } while (0)
@@ -82,7 +104,7 @@ extern int enable_colors;
 #define PRINT_PROMPT()                                                         \
   do {                                                                         \
     if (enable_colors)                                                         \
-      printf(ANSI_BRIGHT_BLUE "> " ANSI_RESET);                                \
+      printf(ANSI_TEAL UI_PROMPT " " ANSI_RESET);                              \
     else                                                                       \
       printf("> ");                                                            \
     fflush(stdout);                                                            \

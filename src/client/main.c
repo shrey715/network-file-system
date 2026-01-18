@@ -93,37 +93,43 @@ int main(int argc, char* argv[]) {
         
         if (strcmp(input, "help") == 0 || strcmp(input, "?") == 0) {
             printf("\n");
-            printf(ANSI_BOLD "Available commands:" ANSI_RESET "\n");
+            printf(ANSI_BOLD ANSI_BRIGHT_WHITE "  ╭─────────────────────────────────╮\n");
+            printf("  │      " ANSI_TEAL "NFS Client Commands" ANSI_BRIGHT_WHITE "       │\n");
+            printf("  ╰─────────────────────────────────╯" ANSI_RESET "\n\n");
+            
+            printf(ANSI_BOLD ANSI_SKY "  Files" ANSI_RESET ANSI_SLATE " ─────────────────────────\n" ANSI_RESET);
+            printf(ANSI_DIM "    ls" ANSI_RESET " [-l]              List files\n");
+            printf(ANSI_DIM "    cat" ANSI_RESET " <file>           Display content\n");
+            printf(ANSI_DIM "    touch" ANSI_RESET " <file>         Create file\n");
+            printf(ANSI_DIM "    rm" ANSI_RESET " <file>            Delete file\n");
+            printf(ANSI_DIM "    mv" ANSI_RESET " <src> <dst>       Move/rename\n");
+            printf(ANSI_DIM "    mkdir" ANSI_RESET " <dir>          Create directory\n");
+            printf(ANSI_DIM "    info" ANSI_RESET " <file>          Metadata\n");
             printf("\n");
-            printf(ANSI_CYAN "Files:" ANSI_RESET "\n");
-            printf("  ls [-l]                      - List files\n");
-            printf("  cat <file>                   - Display file content\n");
-            printf("  touch <file>                 - Create new file\n");
-            printf("  rm <file>                    - Delete file\n");
-            printf("  mv <src> <dst>               - Move/rename file\n");
-            printf("  mkdir <dir>                  - Create directory\n");
-            printf("  info <file>                  - File metadata\n");
+            
+            printf(ANSI_BOLD ANSI_LAVENDER "  Editor" ANSI_RESET ANSI_SLATE " ────────────────────────\n" ANSI_RESET);
+            printf(ANSI_DIM "    open" ANSI_RESET " <file>          View (read-only)\n");
+            printf(ANSI_DIM "    edit" ANSI_RESET " <file> <idx>    Edit sentence\n");
+            printf(ANSI_DIM "    undo" ANSI_RESET " <file>          Undo last change\n");
             printf("\n");
-            printf(ANSI_CYAN "Editor:" ANSI_RESET "\n");
-            printf("  open <file>                  - View file (read-only)\n");
-            printf("  edit <file> <idx>            - Edit sentence\n");
-            printf("  undo <file>                  - Undo last change\n");
+            
+            printf(ANSI_BOLD ANSI_MINT "  Version Control" ANSI_RESET ANSI_SLATE " ───────────────\n" ANSI_RESET);
+            printf(ANSI_DIM "    commit" ANSI_RESET " <file> <tag>  Save checkpoint\n");
+            printf(ANSI_DIM "    log" ANSI_RESET " <file>           List checkpoints\n");
+            printf(ANSI_DIM "    checkout" ANSI_RESET " <file> <tag> Revert\n");
+            printf(ANSI_DIM "    diff" ANSI_RESET " <file> <tag>    View checkpoint\n");
             printf("\n");
-            printf(ANSI_CYAN "Version Control:" ANSI_RESET "\n");
-            printf("  commit <file> <tag>          - Create checkpoint\n");
-            printf("  log <file>                   - List checkpoints\n");
-            printf("  checkout <file> <tag>        - Revert to checkpoint\n");
-            printf("  diff <file> <tag>            - View checkpoint\n");
+            
+            printf(ANSI_BOLD ANSI_GOLD "  Access" ANSI_RESET ANSI_SLATE " ────────────────────────\n" ANSI_RESET);
+            printf(ANSI_DIM "    chmod" ANSI_RESET " <file> <user>  Grant access\n");
+            printf(ANSI_DIM "    acl" ANSI_RESET " <file>           View permissions\n");
             printf("\n");
-            printf(ANSI_CYAN "Access Control:" ANSI_RESET "\n");
-            printf("  chmod <file> <user> [r][w]   - Grant access\n");
-            printf("  acl <file>                   - View access list\n");
+            
+            printf(ANSI_BOLD ANSI_ROSE "  Other" ANSI_RESET ANSI_SLATE " ─────────────────────────\n" ANSI_RESET);
+            printf(ANSI_DIM "    agent" ANSI_RESET " <file> <prompt> Generate with AI\n");
             printf("\n");
-            printf(ANSI_CYAN "Other:" ANSI_RESET "\n");
-            printf("  agent <file> <prompt>        - Generate with AI\n");
-            printf("\n");
-            printf("quit/exit/q - Exit client\n");
-            printf("Tab - Command completion\n\n");
+            
+            printf(ANSI_SLATE "  quit/exit/q " ANSI_RESET "Exit  " ANSI_TEAL "Tab" ANSI_RESET " Complete\n\n");
             free(input);
             continue;
         }
