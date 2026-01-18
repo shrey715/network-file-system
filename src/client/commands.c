@@ -1290,7 +1290,16 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
     editor_disable_raw_mode(E);
     editor_destroy(E);
 
-    /* Save if modified */
+    /* Reconnect to storage server (connection may have closed during edit) */
+    int ss_socket2;
+    result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket2);
+    if (result != ERR_SUCCESS) {
+        if (new_content) free(new_content);
+        PRINT_ERR("Failed to reconnect to storage server for save");
+        return result;
+    }
+
+    /* Save if requested */
     if (should_save && new_content) {
         init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_WORD, state->username);
         strcpy(header.filename, filename);
@@ -1301,9 +1310,9 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
         snprintf(payload, sizeof(payload), "-1 %s", new_content);
         header.data_length = strlen(payload);
 
-        send_message(ss_socket, &header, payload);
+        send_message(ss_socket2, &header, payload);
         response = NULL;
-        recv_message(ss_socket, &header, &response);
+        recv_message(ss_socket2, &header, &response);
         if (response) free(response);
 
         if (header.msg_type != MSG_ACK) {
@@ -1318,12 +1327,12 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
     strcpy(header.filename, filename);
     header.sentence_index = sentence_idx;
 
-    send_message(ss_socket, &header, NULL);
+    send_message(ss_socket2, &header, NULL);
     response = NULL;
-    recv_message(ss_socket, &header, &response);
+    recv_message(ss_socket2, &header, &response);
     if (response) free(response);
 
-    safe_close_socket(&ss_socket);
+    safe_close_socket(&ss_socket2);
 
     if (should_save) {
         PRINT_OK("Changes saved!");
