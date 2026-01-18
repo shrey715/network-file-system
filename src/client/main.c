@@ -105,13 +105,10 @@ int main(int argc, char* argv[]) {
             printf("  file stream <filename>         - Stream file content\n");
             printf("  file exec <filename>           - Execute file as commands\n");
             printf("\n");
-            printf(ANSI_CYAN "Editor (Terminal UI):" ANSI_RESET "\n");
-            printf("  open <filename>              - Open file in viewer (Ctrl+Q to quit)\n");
-            printf("  nano <filename> <sentence>   - Edit sentence in nano-like editor\n");
-            printf("\n");
-            printf(ANSI_CYAN "Edit System (Legacy):" ANSI_RESET "\n");
-            printf("  edit <filename> <idx>        - Edit sentence (word-by-word)\n");
-            printf("  edit undo <filename>         - Undo last change\n");
+            printf(ANSI_CYAN "Editor:" ANSI_RESET "\n");
+            printf("  open <filename>              - View file (Ctrl+Q to quit)\n");
+            printf("  edit <filename> <sentence>   - Edit sentence in terminal editor\n");
+            printf("  undo <filename>              - Undo last change\n");
             printf("\n");
             printf(ANSI_CYAN "Folder System:" ANSI_RESET "\n");
             printf("  folder create <name>         - Create new folder\n");
@@ -172,12 +169,18 @@ int main(int argc, char* argv[]) {
             }
         }
         else if (strcmp(command, "edit") == 0) {
-            if (strcmp(subcommand, "undo") == 0) {
-                execute_undo(&client_state, arg1);
+            if (subcommand[0] == '\0' || arg1[0] == '\0') {
+                PRINT_ERR("Usage: edit <filename> <sentence_idx>");
             } else {
-                // Subcommand is actually the filename, arg1 is the index
                 int sentence_idx = atoi(arg1);
-                execute_write(&client_state, subcommand, sentence_idx);
+                execute_edit(&client_state, subcommand, sentence_idx);
+            }
+        }
+        else if (strcmp(command, "undo") == 0) {
+            if (subcommand[0] == '\0') {
+                PRINT_ERR("Usage: undo <filename>");
+            } else {
+                execute_undo(&client_state, subcommand);
             }
         }
         else if (strcmp(command, "folder") == 0) {
@@ -273,15 +276,6 @@ int main(int argc, char* argv[]) {
                 PRINT_ERR("Usage: open <filename>");
             } else {
                 execute_open(&client_state, subcommand);
-            }
-        }
-        else if (strcmp(command, "nano") == 0) {
-            // NANO command: nano <filename> <sentence_idx>
-            if (subcommand[0] == '\0' || arg1[0] == '\0') {
-                PRINT_ERR("Usage: nano <filename> <sentence_idx>");
-            } else {
-                int sentence_idx = atoi(arg1);
-                execute_edit(&client_state, subcommand, sentence_idx);
             }
         }
         else {
