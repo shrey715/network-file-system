@@ -581,6 +581,13 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
         return ERR_INVALID_SENTENCE;
     }
     
+    // SPECIAL CASE: word_idx == -1 means replace entire sentence content
+    if (word_idx == -1) {
+        free(target_sentence->text);
+        target_sentence->text = strdup(new_word);
+        return ERR_SUCCESS;
+    }
+    
     // Split sentence into words (use dynamic copy to avoid truncation)
     char* sentence_copy = strdup(target_sentence->text);
     if (!sentence_copy) {

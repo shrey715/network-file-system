@@ -1296,9 +1296,9 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
         strcpy(header.filename, filename);
         header.sentence_index = sentence_idx;
 
-        /* Send the full new content as replacement */
+        /* Send with word_idx=-1 to replace entire sentence content */
         char payload[4096];
-        snprintf(payload, sizeof(payload), "0 %s", new_content);
+        snprintf(payload, sizeof(payload), "-1 %s", new_content);
         header.data_length = strlen(payload);
 
         send_message(ss_socket, &header, payload);
