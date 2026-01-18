@@ -1,7 +1,7 @@
-/*
- * handlers_helpers.h - Common helper functions for request handlers
+/**
+ * handlers_helpers.h - Handler utility functions
  *
- * Provides reusable helper functions to reduce code duplication in handlers.c
+ * Reusable functions for request handling in the name server.
  */
 
 #ifndef HANDLERS_HELPERS_H
@@ -10,11 +10,10 @@
 #include "common.h"
 #include "name_server.h"
 
-// Forward declarations for external state
 extern NameServerState ns_state;
 
-/*
- * Helper structure for SS connection info
+/**
+ * SSConnection - Storage server connection info
  */
 typedef struct {
   int socket;
@@ -23,74 +22,59 @@ typedef struct {
   int client_port;
 } SSConnection;
 
-/*
- * send_error_response
- * @brief Send a simple error response to client
- *
- * @param client_fd Client socket
- * @param header Message header (will be modified)
- * @param error_code Error code to send
+/**
+ * Send an error response to the client.
  */
-static inline void send_error_response(int client_fd, MessageHeader *header,
-                                       int error_code) {
-  header->msg_type = MSG_ERROR;
-  header->error_code = error_code;
-  header->data_length = 0;
-  send_message(client_fd, header, NULL);
+static inline void send_error(int fd, MessageHeader *h, int err) {
+  h->msg_type = MSG_ERROR;
+  h->error_code = err;
+  h->data_length = 0;
+  send_message(fd, h, NULL);
 }
 
-/*
- * send_ack_response
- * @brief Send a simple ACK response to client
- *
- * @param client_fd Client socket
- * @param header Message header (will be modified)
+/**
+ * Send an ACK response to the client.
  */
-static inline void send_ack_response(int client_fd, MessageHeader *header) {
-  header->msg_type = MSG_ACK;
-  header->error_code = ERR_SUCCESS;
-  header->data_length = 0;
-  send_message(client_fd, header, NULL);
+static inline void send_ack(int fd, MessageHeader *h) {
+  h->msg_type = MSG_ACK;
+  h->error_code = ERR_SUCCESS;
+  h->data_length = 0;
+  send_message(fd, h, NULL);
 }
 
-/*
- * find_file_with_permission
- * @brief Find file and check permission in one step
+/**
+ * Find file and verify permission.
  *
- * @param filename File to find
- * @param username User requesting access
- * @param need_write Whether write permission is required
- * @param file_out Output pointer for file metadata
- * @return ERR_SUCCESS on success, or error code
+ * @param filename    File to find
+ * @param username    User requesting access
+ * @param need_write  Non-zero if write permission required
+ * @param file_out    Output file metadata pointer
+ * @return ERR_SUCCESS or error code
  */
-static inline int find_file_with_permission(const char *filename,
-                                            const char *username,
-                                            int need_write,
-                                            FileMetadata **file_out) {
+static inline int get_file_with_perm(const char *filename, const char *username,
+                                     int need_write, FileMetadata **file_out) {
   FileMetadata *file = nm_find_file(filename);
   if (!file) {
     return ERR_FILE_NOT_FOUND;
   }
 
-  int perm_result = nm_check_permission(filename, username, need_write);
-  if (perm_result != ERR_SUCCESS) {
-    return perm_result;
+  int result = nm_check_permission(filename, username, need_write);
+  if (result != ERR_SUCCESS) {
+    return result;
   }
 
   *file_out = file;
   return ERR_SUCCESS;
 }
 
-/*
- * connect_to_ss_for_file
- * @brief Connect to the storage server hosting a file
+/**
+ * Connect to the storage server hosting a file.
  *
- * @param file File metadata
- * @param conn Output connection info
- * @return ERR_SUCCESS on success, or error code
+ * @param file  File metadata
+ * @param conn  Output connection info
+ * @return ERR_SUCCESS or error code
  */
-static inline int connect_to_ss_for_file(FileMetadata *file,
-                                         SSConnection *conn) {
+static inline int connect_to_ss(FileMetadata *file, SSConnection *conn) {
   StorageServerInfo *ss = nm_find_storage_server(file->ss_id);
   if (!ss || !ss->is_active) {
     return ERR_SS_UNAVAILABLE;
@@ -109,68 +93,55 @@ static inline int connect_to_ss_for_file(FileMetadata *file,
   return ERR_SUCCESS;
 }
 
-/*
- * forward_to_ss_simple
- * @brief Forward a request to SS and relay the response
+/**
+ * Forward a request to the storage server and relay response to client.
  *
- * This handles the common pattern of:
- * 1. Check file exists and permissions
- * 2. Connect to SS
- * 3. Send request
- * 4. Relay response to client
- * 5. Cleanup
+ * Handles permission checking, SS connection, message forwarding, and cleanup.
  *
- * @param client_fd Client socket
- * @param header Original client request header (modified)
- * @param ss_op_code Operation code to send to SS
- * @param need_write Whether write permission is needed
- * @return ERR_SUCCESS or error code
+ * @param client_fd   Client socket
+ * @param header      Request header (modified)
+ * @param ss_op_code  Operation code to send to SS
+ * @param need_write  Non-zero if write permission required
+ * @return Error code from SS response
  */
-static inline int forward_to_ss_simple(int client_fd, MessageHeader *header,
-                                       int ss_op_code, int need_write) {
+static inline int forward_to_ss(int client_fd, MessageHeader *header,
+                                int ss_op_code, int need_write) {
   FileMetadata *file = NULL;
-  int result = find_file_with_permission(header->filename, header->username,
-                                         need_write, &file);
+  int result =
+      get_file_with_perm(header->filename, header->username, need_write, &file);
   if (result != ERR_SUCCESS) {
-    send_error_response(client_fd, header, result);
+    send_error(client_fd, header, result);
     return result;
   }
 
   SSConnection conn;
-  result = connect_to_ss_for_file(file, &conn);
+  result = connect_to_ss(file, &conn);
   if (result != ERR_SUCCESS) {
-    send_error_response(client_fd, header, result);
+    send_error(client_fd, header, result);
     return result;
   }
 
-  // Send request to SS
   MessageHeader ss_header = *header;
   ss_header.op_code = ss_op_code;
   send_message(conn.socket, &ss_header, NULL);
 
-  // Receive and forward response
   char *ss_payload = NULL;
   MessageHeader ss_response;
   recv_message(conn.socket, &ss_response, &ss_payload);
   close(conn.socket);
 
   send_message(client_fd, &ss_response, ss_payload);
-
   if (ss_payload)
     free(ss_payload);
 
   return ss_response.error_code;
 }
 
-/*
- * get_operation_name
- * @brief Get human-readable operation name from op_code
- *
- * @param op_code Operation code
- * @return Static string with operation name
+/**
+ * Get human-readable operation name.
  */
-static inline const char *get_operation_name(int op_code) {
-  switch (op_code) {
+static inline const char *op_name(int op) {
+  switch (op) {
   case OP_REGISTER_SS:
     return "SS_REGISTER";
   case OP_CONNECT_CLIENT:
@@ -230,4 +201,4 @@ static inline const char *get_operation_name(int op_code) {
   }
 }
 
-#endif // HANDLERS_HELPERS_H
+#endif /* HANDLERS_HELPERS_H */
