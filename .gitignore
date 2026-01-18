@@ -38,3 +38,6 @@ vgcore.*
 course_project.md
 llm.md
 generate_llm.sh
+
+# === Clangd ===
+compile_commands.json
