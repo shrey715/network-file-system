@@ -1,325 +1,117 @@
-# Docs++ - Distributed File System
+# Docs++
 
-A simplified, shared document system with support for concurrency and access control, similar in spirit to Google Docs.
+**Docs++** is a distributed network file system built for the **Operating Systems and Networks** course at **IIIT Hyderabad** (Monsoon 2025).
 
-## Team: Flying Fish
-
-## Features
-
-### Core Functionalities (150 points)
-1. ✅ **file list** - List files with various flags (-a, -l)
-2. ✅ **file read** - Read file contents
-3. ✅ **file create** - Create new files
-4. ✅ **edit** - Write to files at word level with sentence locking
-5. ✅ **edit undo** - Revert last file changes
-6. ✅ **file info** - Get file metadata and details
-7. ✅ **file delete** - Delete files (owner only)
-8. ✅ **file stream** - Stream file content word-by-word
-9. ✅ **user list** - List all registered users
-10. ✅ **access grant** - Add read/write access to users
-11. ✅ **access revoke** - Remove user access
-12. ✅ **file exec** - Execute file contents as shell commands
-
-### Bonus Features
-- ✅ **folder create/view** - Hierarchical folder structure
-- ✅ **version create/view/revert/list** - Checkpoint-based version control
-- ✅ **access request/approve/deny** - Access request workflow
-
-### System Requirements (40 points)
-- ✅ Data Persistence - Files stored persistently
-- ✅ Access Control - Permission-based file access
-- ✅ Logging - Complete operation logging
-- ✅ Error Handling - Comprehensive error codes
-- ✅ Efficient Search - Fast file lookups
+It features a central Name Server (NM), multiple Storage Servers (SS), and Clients with a command-line interface.
 
 ## Architecture
 
 The system consists of three main components:
 
-1. **Name Server (NM)** - Central coordinator managing:
-   - File registry and metadata
-   - Storage server registration
-   - Client connections
-   - Access control lists (ACL)
-   - Request routing
+1.  **Name Server (NM)**: The central coordinator.
+    *   Maintains the directory tree (Trie structure) and file metadata.
+    *   Tracks available Storage Servers.
+    *   Handles client requests for file locations and permissions.
+    *   Uses an LRU cache for efficient path lookups.
 
-2. **Storage Servers (SS)** - File storage nodes providing:
-   - Physical file storage
-   - Sentence-level locking for concurrent writes
-   - Undo functionality
-   - Direct client connections for read/write/stream
+2.  **Storage Server (SS)**: Stores actual file data.
+    *   Registers with the Name Server upon startup.
+    *   Manages local file operations (read, write, create, delete).
+    *   Implements a **Piece Table** data structure for efficient text editing.
+    *   Supports backing up data to disk.
 
-3. **Clients** - User interface providing:
-   - Command-line interface
-   - All 12 file operations
-   - Direct SS connections for data operations
+3.  **Client**: The user interface.
+    *   Connects to the Name Server to locate files.
+    *   Connects directly to Storage Servers for data transfer.
+    *   Provides a shell-like CLI for file management.
+    *   Includes a built-in **TUI Text Editor** (Text User Interface) with support for large files and visual navigation.
 
-## Building
+## Features
 
-```bash
-make
-```
+*   **Distributed Storage**: Files are stored across multiple storage servers.
+*   **Efficient Editing**: Uses Piece Table structure for O(1) insert/delete operations on large files.
+*   **Visual Editor**: Interactive terminal-based editor with syntax highlighting buffer, scrolling, and undo capabilities.
+*   **Replication**: Basic support for data redundancy (if configured).
+*   **Access Control**: Simple permission system (ACLs) for users.
+*   **Search**: Optimized file search using Trie and LRU cache.
+*   **Automation**: Supports piped input for scripted file editing.
 
-This will create three executables:
-- `name_server` - Name Server
-- `storage_server` - Storage Server
-- `client` - Client
+## Build Instructions
 
-## Running the System
-
-### 1. Start the Name Server
-
-```bash
-./name_server <port>
-```
-
-Example:
-```bash
-./name_server 8000
-```
-
-### 2. Start Storage Servers
+**Prerequisites**: GCC compiler, Make.
 
 ```bash
-./storage_server <nm_ip> <nm_port> <client_port> <server_id>
+# Build all components (Client, Name Server, Storage Server)
+make all
+
+# Clean build artifacts
+make clean
 ```
 
-Examples:
+## Usage
+
+### 1. Start Name Server
+Start the Name Server on a specific port (e.g., 8080).
 ```bash
-./storage_server 127.0.0.1 8000 9000 1
-./storage_server 127.0.0.1 8000 9001 2
+./name_server 8080
 ```
 
-### 3. Start Clients
-
+### 2. Start Storage Server(s)
+Start one or more storage servers. They need to know the Name Server's IP/Port.
 ```bash
-./client <nm_ip> <nm_port>
+# Usage: ./storage_server <NM_IP> <NM_PORT> <CLIENT_PORT> <SS_ID>
+./storage_server 127.0.0.1 8080 8081 1
 ```
 
-Example:
+### 3. Start Client
+Connect the client to the Name Server.
 ```bash
-./client 127.0.0.1 8000
+# Usage: ./client <NM_IP> <NM_PORT>
+./client 127.0.0.1 8080
 ```
 
-You will be prompted to enter a username.
+## Client Commands
 
-### Quick Start Script
+Once connected, the client provides a shell environment.
 
-```bash
-./tests/run_tests.sh
-```
+### File Operations
+*   `ls [-a] [-l]` : List files. Use `-a` to show hidden files (starting with `.`). Use `-l` for detailed table view.
+*   `cat <file>` : Display file contents.
+*   `touch <file>` : Create a new empty file.
+*   `rm <file>` : Delete a file.
+*   `mv <src> <dest>` : Rename or move a file.
+*   `mkdir <dir>` : Create a directory.
+*   `info <file>` : Show file metadata (size, owner, storage server).
 
-This script will:
-- Build the project
-- Start the Name Server on port 8000
-- Start two Storage Servers on ports 9000 and 9001
-- Keep all servers running until you press Ctrl+C
-
-## Command Structure
-
-The client uses a hierarchical command structure organized into logical categories:
-
-- **`file`** - File system operations (create, read, delete, info, list, move, stream, exec)
-- **`edit`** - File editing operations (edit sentence, undo)
-- **`folder`** - Folder management (create, view)
-- **`version`** - Version control (create checkpoint, view, revert, list)
-- **`access`** - Access control (grant, revoke, request, approve, deny)
-- **`user`** - User operations (list)
-
-For a complete command reference, see [COMMAND_GUIDE.md](documentation/COMMAND_GUIDE.md).
-
-## Usage Examples
-
-### File System Operations
-
-```
-file list              # List your accessible files
-file list -a           # List all files in the system
-file list -l           # List with details (words, chars, owner, etc.)
-file list -al          # List all files with details
-
-file create test.txt   # Create a new file
-file read test.txt     # Read file content
-file delete test.txt   # Delete file (owner only)
-file info test.txt     # Get file metadata
-file stream test.txt   # Stream content word-by-word
-file exec script.sh    # Execute file as shell script
-```
-
-### Editing Files
-
-```
-edit test.txt 0      # Start editing sentence 0
-1 Hello              # Insert "Hello" at word index 1
-3 world!             # Insert "world!" at word index 3
-ETIRW                # Finish editing (unlocks sentence)
-
-edit undo test.txt   # Undo last change
-```
-
-### Folder Management
-
-```
-folder create docs        # Create a new folder
-folder view /docs         # List folder contents
-file move test.txt /docs    # Move file to folder
-```
+### Editor
+*   `open <file>` : Open file in read-only mode.
+*   `edit <file> <idx>` : Open file for editing starting at sentence index `<idx>` (use 0 for start).
+    *   **Interactive**: Opens TUI editor.
+    *   **Headless**: Pipe content to stdin (e.g., `echo "data" | client ... edit file 0`).
+*   `undo <file>` : Revert last change (if supported by SS).
 
 ### Version Control
-
-```
-version create test.txt v1.0    # Create checkpoint
-version list test.txt           # List all checkpoints
-version view test.txt v1.0      # View checkpoint content
-version revert test.txt v1.0    # Revert to checkpoint
-```
+*   `commit <file> <tag>` : Save a checkpoint of the file.
+*   `log <file>` : List all checkpoints.
+*   `checkout <file> <tag>` : Revert file to a previous checkpoint.
+*   `diff <file> <tag>` : View content of a specific checkpoint.
 
 ### Access Control
+*   `chmod <file> <user>` : Grant permissions to another user.
+*   `acl <file>` : List users with access to the file.
 
-```
-access grant test.txt user2 -R     # Give user2 read access
-access grant test.txt user3 -W     # Give user3 write access
-access revoke test.txt user2       # Remove user2's access
-
-access request shared.txt -R       # Request read access to file
-access requests myfile.txt         # View pending requests (owner)
-access approve myfile.txt user2    # Approve request (owner)
-access deny myfile.txt user3       # Deny request (owner)
-```
-
-### User Management
-
-```
-user list            # List all registered users
-```
-
-## Project Structure
-
-```
-course_project/
-├── include/              # Header files
-│   ├── common.h         # Shared definitions
-│   ├── client.h         # Client interfaces
-│   ├── name_server.h    # Name server interfaces
-│   └── storage_server.h # Storage server interfaces
-├── src/
-│   ├── common/          # Common utilities
-│   │   ├── logger.c     # Logging functions
-│   │   ├── network.c    # Network utilities
-│   │   └── utils.c      # Utility functions
-│   ├── name_server/     # Name server implementation
-│   │   ├── main.c       # Main server loop
-│   │   ├── file_registry.c # File management
-│   │   └── handlers.c   # Request handlers
-│   ├── storage_server/  # Storage server implementation
-│   │   ├── main.c       # Main server loop
-│   │   ├── file_ops.c   # File operations
-│   │   └── sentence.c   # Sentence parsing & locking
-│   └── client/          # Client implementation
-│       ├── main.c       # Main client loop
-│       ├── commands.c   # Command implementations
-│       └── parser.c     # Command parser
-├── data/                # Persistent data storage
-├── logs/                # Log files
-├── tests/               # Test scripts
-├── Makefile            # Build configuration
-└── README.md           # This file
-```
-
-## Implementation Details
-
-### Concurrency Control
-
-- **Sentence-level locking**: Multiple users can edit different sentences simultaneously
-- **Lock ownership**: Each locked sentence tracks the user who locked it
-- **Automatic unlock**: ETIRW command releases sentence locks
-
-### Data Persistence
-
-- Files stored in `data/ss_<id>/` directories
-- Metadata stored in `.meta` files
-- Undo history in `.undo` files
-- Name server state in `data/nm_state.dat`
-
-### Access Control
-
-- Owner has full read/write access
-- Owner can grant read or write access to other users
-- Write access includes read access
-- All operations check permissions before execution
-
-### Error Handling
-
-Comprehensive error codes for:
-- File not found (101)
-- Permission denied (102)
-- File already exists (103)
-- Sentence locked (104)
-- Invalid indices (105, 114, 115)
-- Ownership errors (106)
-- Storage server issues (108, 109)
-- And more...
-
-### Logging
-
-All operations are logged with:
-- Timestamps
-- Component (NM, SS, Client)
-- User information
-- Operation details
-- Success/failure status
-
-Logs are stored in `logs/` directory.
+### Other
+*   `agent <file> <prompt>` : (Experimental) AI agent helper.
+*   `quit` / `exit` : Close the client.
 
 ## Testing
 
-The system has been tested with:
-- Multiple concurrent clients
-- Multiple storage servers
-- Concurrent read/write operations
-- Permission checks
-- Error conditions
-- Long-running operations
+The project includes unit tests and stress tests.
 
-## Known Limitations
+```bash
+# Run unit tests (Piece Table, Document, Editor)
+make test
 
-1. Name Server failure brings down the entire system (as specified)
-2. Single-level undo (only last operation)
-3. No automatic failover for storage servers
-
-## Error Codes Reference
-
-| Code | Description |
-|------|-------------|
-| 0    | Success |
-| 101  | File not found |
-| 102  | Permission denied |
-| 103  | File already exists |
-| 104  | Sentence locked by another user |
-| 105  | Invalid sentence or word index |
-| 106  | Not owner |
-| 107  | User not found |
-| 108  | Storage server unavailable |
-| 109  | Storage server disconnected |
-| 110  | Invalid command |
-| 111  | Network error |
-| 112  | File operation failed |
-| 113  | No undo history available |
-
-## Future Enhancements
-
-Potential improvements that could be added:
-- Fault tolerance with replication
-- Multiple undo levels
-- Real-time notifications
-- Batch operations
-- File compression
-
-## Contributors
-
-Team Flying Fish
-
-## License
-
-This is a course project for OSN Monsoon 2025.
-
+# Run integration/stress test
+./tests/run_stress_test.sh
+```
