@@ -565,8 +565,6 @@ void editor_run(EditorState* E) {
         editor_process_key(E);
     }
 
-    /* Restore screen - move cursor below content and reset */
-    char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;1H\r\n", E->screen_rows + 2);
-    write(STDOUT_FILENO, buf, strlen(buf));
+    /* Clear screen and restore cursor on exit (like nano/vim) */
+    write(STDOUT_FILENO, CLEAR_SCREEN CURSOR_HOME, strlen(CLEAR_SCREEN CURSOR_HOME));
 }
