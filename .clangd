@@ -1,0 +1,9 @@
+# Clang language server configuration
+# Provides include paths for IDE code analysis
+
+CompileFlags:
+  Add:
+    - -I./include
+    - -Wall
+    - -Wextra
+    - -pthread

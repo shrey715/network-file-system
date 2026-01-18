@@ -1,24 +1,23 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include "table.h"
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <time.h>
-#include <errno.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <dirent.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <pthread.h>
-#include "table.h"
+#include <time.h>
+#include <unistd.h>
 
 // ============ ANSI COLOR CODES ============
 #define ANSI_RESET "\033[0m"
@@ -48,31 +47,46 @@
 extern int enable_colors;
 
 // Convenience print macros that respect enable_colors.
-#define PRINT_ERR(fmt, ...) do { \
-    if (enable_colors) printf(ANSI_BRIGHT_RED "Error: " fmt ANSI_RESET "\n", ##__VA_ARGS__); \
-    else printf("Error: " fmt "\n", ##__VA_ARGS__); \
-} while(0)
+#define PRINT_ERR(fmt, ...)                                                    \
+  do {                                                                         \
+    if (enable_colors)                                                         \
+      printf(ANSI_BRIGHT_RED "Error: " fmt ANSI_RESET "\n", ##__VA_ARGS__);    \
+    else                                                                       \
+      printf("Error: " fmt "\n", ##__VA_ARGS__);                               \
+  } while (0)
 
-#define PRINT_OK(fmt, ...) do { \
-    if (enable_colors) printf(ANSI_GREEN fmt ANSI_RESET "\n", ##__VA_ARGS__); \
-    else printf(fmt "\n", ##__VA_ARGS__); \
-} while(0)
+#define PRINT_OK(fmt, ...)                                                     \
+  do {                                                                         \
+    if (enable_colors)                                                         \
+      printf(ANSI_GREEN fmt ANSI_RESET "\n", ##__VA_ARGS__);                   \
+    else                                                                       \
+      printf(fmt "\n", ##__VA_ARGS__);                                         \
+  } while (0)
 
-#define PRINT_WARN(fmt, ...) do { \
-    if (enable_colors) printf(ANSI_YELLOW fmt ANSI_RESET "\n", ##__VA_ARGS__); \
-    else printf(fmt "\n", ##__VA_ARGS__); \
-} while(0)
+#define PRINT_WARN(fmt, ...)                                                   \
+  do {                                                                         \
+    if (enable_colors)                                                         \
+      printf(ANSI_YELLOW fmt ANSI_RESET "\n", ##__VA_ARGS__);                  \
+    else                                                                       \
+      printf(fmt "\n", ##__VA_ARGS__);                                         \
+  } while (0)
 
-#define PRINT_INFO(fmt, ...) do { \
-    if (enable_colors) printf(ANSI_CYAN fmt ANSI_RESET "\n", ##__VA_ARGS__); \
-    else printf(fmt "\n", ##__VA_ARGS__); \
-} while(0)
+#define PRINT_INFO(fmt, ...)                                                   \
+  do {                                                                         \
+    if (enable_colors)                                                         \
+      printf(ANSI_CYAN fmt ANSI_RESET "\n", ##__VA_ARGS__);                    \
+    else                                                                       \
+      printf(fmt "\n", ##__VA_ARGS__);                                         \
+  } while (0)
 
-#define PRINT_PROMPT() do { \
-    if (enable_colors) printf(ANSI_BRIGHT_BLUE "> " ANSI_RESET); \
-    else printf("> "); \
-    fflush(stdout); \
-} while(0)
+#define PRINT_PROMPT()                                                         \
+  do {                                                                         \
+    if (enable_colors)                                                         \
+      printf(ANSI_BRIGHT_BLUE "> " ANSI_RESET);                                \
+    else                                                                       \
+      printf("> ");                                                            \
+    fflush(stdout);                                                            \
+  } while (0)
 
 // ============ CONSTANTS ============
 #define MAX_FILENAME 256
@@ -80,20 +94,23 @@ extern int enable_colors;
 #define MAX_USERNAME 64
 #define MAX_CHECKPOINT_TAG 64
 #define MAX_IP 16
-#define MAX_STORAGE_DIR 512      // Maximum length for storage directory path
-#define MAX_PATH 1024            // Maximum length for full file paths
-#define MAX_FULL_PATH 1536       // MAX_PATH + MAX_FILENAME + extra (for folder_path/filename)
+#define MAX_STORAGE_DIR 512 // Maximum length for storage directory path
+#define MAX_PATH 1024       // Maximum length for full file paths
+#define MAX_FULL_PATH                                                          \
+  1536 // MAX_PATH + MAX_FILENAME + extra (for folder_path/filename)
 #define BUFFER_SIZE 4096
 #define MAX_STORAGE_SERVERS 10
 #define MAX_FILES 1000
 #define MAX_FOLDERS 500
 #define MAX_CLIENTS 100
 #define MAX_SENTENCE_LOCKS 100
-#define MAX_SENTENCE_CONTENT 2048  // Maximum length for sentence content snapshot
-#define LRU_CACHE_SIZE 100       // Size of LRU cache for file lookups
-#define TRIE_ALPHABET_SIZE 256   // ASCII character set for Trie
-#define HEARTBEAT_TIMEOUT 30     // Seconds before marking storage server as inactive
-#define HEARTBEAT_CHECK_INTERVAL 10  // Seconds between heartbeat checks
+#define MAX_SENTENCE_CONTENT                                                   \
+  2048                         // Maximum length for sentence content snapshot
+#define LRU_CACHE_SIZE 100     // Size of LRU cache for file lookups
+#define TRIE_ALPHABET_SIZE 256 // ASCII character set for Trie
+#define HEARTBEAT_TIMEOUT                                                      \
+  30 // Seconds before marking storage server as inactive
+#define HEARTBEAT_CHECK_INTERVAL 10 // Seconds between heartbeat checks
 
 // ============ MESSAGE TYPES ============
 #define MSG_REQUEST 1
@@ -177,48 +194,54 @@ extern int enable_colors;
 #define ERR_ALREADY_HAS_ACCESS 124
 #define ERR_INVALID_FILENAME 125
 #define ERR_USERNAME_TAKEN 126
-#define ERR_SS_EXISTS 127  // Storage Server ID already in use
+#define ERR_SS_EXISTS 127 // Storage Server ID already in use
 
 // ============ MESSAGE STRUCTURE ============
 typedef struct {
-    int msg_type;
-    int op_code;
-    char username[MAX_USERNAME];
-    char filename[MAX_FILENAME];
-    char foldername[MAX_FOLDERNAME];  // For folder operations
-    char checkpoint_tag[MAX_CHECKPOINT_TAG];  // For checkpoint operations
-    int data_length;
-    int error_code;
-    int sentence_index;
-    int word_index;
-    int flags;  // For VIEW command flags
+  int msg_type;
+  int op_code;
+  char username[MAX_USERNAME];
+  char filename[MAX_FILENAME];
+  char foldername[MAX_FOLDERNAME];         // For folder operations
+  char checkpoint_tag[MAX_CHECKPOINT_TAG]; // For checkpoint operations
+  int data_length;
+  int error_code;
+  int sentence_index;
+  int word_index;
+  int flags; // For VIEW command flags
 } MessageHeader;
 
 // ============ NETWORK FUNCTIONS ============
-int send_message(int sockfd, MessageHeader* header, const char* payload);
-int recv_message(int sockfd, MessageHeader* header, char** payload);
+int send_message(int sockfd, MessageHeader *header, const char *payload);
+int recv_message(int sockfd, MessageHeader *header, char **payload);
 int create_server_socket(int port);
-int connect_to_server(const char* ip, int port);
+int connect_to_server(const char *ip, int port);
 
 // ============ MESSAGE HELPERS ============
-void init_message_header(MessageHeader* header, int msg_type, int op_code, const char* username);
-int parse_ss_info(const char* ss_info, char* ip_out, int* port_out);
-void safe_close_socket(int* sockfd);
+void init_message_header(MessageHeader *header, int msg_type, int op_code,
+                         const char *username);
+int parse_ss_info(const char *ss_info, char *ip_out, int *port_out);
+void safe_close_socket(int *sockfd);
 
 // ============ LOGGING FUNCTIONS ============
-void log_message(const char* component, const char* level, const char* message);
-void log_operation(const char* component, const char* level, const char* operation,
-                   const char* username, const char* ip, int port, 
-                   const char* details, int error_code);
+void log_message(const char *component, const char *level, const char *message);
+void log_operation(const char *component, const char *level,
+                   const char *operation, const char *username, const char *ip,
+                   int port, const char *details, int error_code);
 
 // ============ UTILITY FUNCTIONS ============
-int visual_strlen(const char* str);  // Calculate visual width excluding ANSI codes
-char* read_file_content(const char* filepath);
-int write_file_content(const char* filepath, const char* content);
-int file_exists(const char* filepath);
-long get_file_size(const char* filepath);
-int is_valid_filename(const char* filename);  // Check if filename doesn't use reserved extensions
-void create_directory(const char* path);
-char* get_error_message(int error_code);
+int visual_strlen(
+    const char *str); // Calculate visual width excluding ANSI codes
+char *read_file_content(const char *filepath);
+int write_file_content(const char *filepath, const char *content);
+int file_exists(const char *filepath);
+long get_file_size(const char *filepath);
+int is_valid_filename(
+    const char *filename); // Check if filename doesn't use reserved extensions
+void create_directory(const char *path);
+char *get_error_message(int error_code);
+
+// ============ NETWORK UTILITY FUNCTIONS ============
+int get_local_network_ip(char *ip_out, size_t size);
 
 #endif // COMMON_H

@@ -127,9 +127,20 @@ int main(int argc, char* argv[]) {
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_REGISTER_SS;
     
+    // Get our network IP to include in registration
+    // This ensures remote clients can reach us, not relying on getpeername()
+    char my_ip[MAX_IP];
+    if (get_local_network_ip(my_ip, sizeof(my_ip)) != 0) {
+        // Fallback to NM IP if we can't determine our network IP
+        // This works when SS and NM are on same machine
+        strcpy(my_ip, config.nm_ip);
+        log_message("SS", "WARN", "Could not detect network IP, using NM IP as fallback");
+    }
+    
     char payload[256];
-    snprintf(payload, sizeof(payload), "%d %d %d", 
-             config.server_id, config.nm_port, config.client_port);
+    // Include our IP in the registration payload: "server_id nm_port client_port my_ip"
+    snprintf(payload, sizeof(payload), "%d %d %d %s", 
+             config.server_id, config.nm_port, config.client_port, my_ip);
     header.data_length = strlen(payload);
     
     send_message(nm_socket, &header, payload);

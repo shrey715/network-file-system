@@ -1,5 +1,6 @@
 #include "common.h"
 #include "name_server.h"
+#include "handlers_helpers.h"
 
 extern NameServerState ns_state;
 
@@ -37,40 +38,9 @@ void* handle_client_connection(void* arg) {
     while (recv_message(client_fd, &header, &payload) > 0) {
         char response_buf[BUFFER_SIZE];
         char details[1024];
-        const char* operation = "UNKNOWN";
+        // Get operation name using helper
+        const char* operation = get_operation_name(header.op_code);
         int result_code = ERR_SUCCESS;
-        
-        // Determine operation name
-        switch (header.op_code) {
-            case OP_REGISTER_SS: operation = "SS_REGISTER"; break;
-            case OP_CONNECT_CLIENT: operation = "CLIENT_CONNECT"; break;
-            case OP_DISCONNECT: operation = "CLIENT_DISCONNECT"; break;
-            case OP_HEARTBEAT: operation = "HEARTBEAT"; break;
-            case OP_VIEW: operation = "VIEW"; break;
-            case OP_READ: operation = "READ"; break;
-            case OP_CREATE: operation = "CREATE"; break;
-            case OP_WRITE: operation = "WRITE"; break;
-            case OP_DELETE: operation = "DELETE"; break;
-            case OP_INFO: operation = "INFO"; break;
-            case OP_LIST: operation = "LIST"; break;
-            case OP_STREAM: operation = "STREAM"; break;
-            case OP_UNDO: operation = "UNDO"; break;
-            case OP_EXEC: operation = "EXEC"; break;
-            case OP_ADDACCESS: operation = "ADD_ACCESS"; break;
-            case OP_REMACCESS: operation = "REMOVE_ACCESS"; break;
-            case OP_MOVE: operation = "MOVE"; break;
-            case OP_CREATEFOLDER: operation = "CREATE_FOLDER"; break;
-            case OP_VIEWFOLDER: operation = "VIEW_FOLDER"; break;
-            case OP_CHECKPOINT: operation = "CHECKPOINT"; break;
-            case OP_VIEWCHECKPOINT: operation = "VIEW_CHECKPOINT"; break;
-            case OP_REVERT: operation = "REVERT"; break;
-            case OP_LISTCHECKPOINTS: operation = "LIST_CHECKPOINTS"; break;
-            case OP_REQUESTACCESS: operation = "REQUEST_ACCESS"; break;
-            case OP_VIEWREQUESTS: operation = "VIEW_REQUESTS"; break;
-            case OP_APPROVEREQUEST: operation = "APPROVE_REQUEST"; break;
-            case OP_DENYREQUEST: operation = "DENY_REQUEST"; break;
-            default: operation = "UNKNOWN"; break;
-        }
         
         // Initialize default details based on header content
         if (header.filename[0]) {
@@ -83,16 +53,26 @@ void* handle_client_connection(void* arg) {
         
         switch (header.op_code) {
             case OP_REGISTER_SS: {
-                // Parse: "server_id nm_port client_port"
+                // Parse: "server_id nm_port client_port ss_ip"
+                // The SS now provides its own network IP to fix the localhost bug
                 int server_id, nm_port, client_port;
-                sscanf(payload, "%d %d %d", &server_id, &nm_port, &client_port);
+                char ss_provided_ip[MAX_IP] = {0};
                 
-                // Get client IP
-                struct sockaddr_in addr;
-                socklen_t addr_len = sizeof(addr);
-                getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
+                // Parse registration payload - ss_ip is optional for backward compatibility
+                int parsed = sscanf(payload, "%d %d %d %63s", &server_id, &nm_port, &client_port, ss_provided_ip);
+                
                 char ip[MAX_IP];
-                inet_ntop(AF_INET, &addr.sin_addr, ip, sizeof(ip));
+                if (parsed >= 4 && ss_provided_ip[0] != '\0') {
+                    // Use SS-provided IP (new behavior - fixes localhost bug)
+                    strncpy(ip, ss_provided_ip, MAX_IP - 1);
+                    ip[MAX_IP - 1] = '\0';
+                } else {
+                    // Fallback to getpeername() for backward compatibility
+                    struct sockaddr_in addr;
+                    socklen_t addr_len = sizeof(addr);
+                    getpeername(client_fd, (struct sockaddr*)&addr, &addr_len);
+                    inet_ntop(AF_INET, &addr.sin_addr, ip, sizeof(ip));
+                }
                 
                 snprintf(details, sizeof(details), "SS_ID=%d IP=%s NM_Port=%d Client_Port=%d", 
                         server_id, ip, nm_port, client_port);
