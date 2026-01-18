@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <sys/ioctl.h>
 
 static struct termios orig_termios;
 static int raw_mode_enabled = 0;
@@ -171,13 +172,48 @@ static void clear_line(const char* prompt, int buf_len) {
  * @param cursor_pos Cursor position within buffer (0..strlen(buffer)).
  */
 static void redraw_line(const char* prompt, const char* buffer, int cursor_pos) {
-    printf("\r%s%s\033[K", prompt, buffer);
-
-    // Calculate visual prompt length (excluding ANSI codes)
+    // Get terminal width for handling line wrapping
+    struct winsize ws;
+    int term_width = 80;  // Default
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+        term_width = ws.ws_col;
+    }
+    
     int prompt_len = visual_strlen(prompt);
-
-    // Move cursor to correct position
-    printf("\r\033[%dC", prompt_len + cursor_pos);
+    int buf_len = strlen(buffer);
+    int total_len = prompt_len + buf_len;
+    
+    // Calculate how many lines we're currently using
+    int lines_used = (total_len + term_width - 1) / term_width;
+    if (lines_used < 1) lines_used = 1;
+    
+    // Move cursor up to the start line if wrapped
+    if (lines_used > 1) {
+        printf("\033[%dA", lines_used - 1);
+    }
+    
+    // Move to column 0 and clear from cursor to end of screen
+    printf("\r\033[J");
+    
+    // Print prompt and buffer
+    printf("%s%s", prompt, buffer);
+    
+    // Calculate cursor position and move there
+    int cursor_total = prompt_len + cursor_pos;
+    int cursor_line = cursor_total / term_width;
+    int cursor_col = cursor_total % term_width;
+    
+    // Calculate current line (after printing)
+    int current_line = total_len / term_width;
+    
+    // Move up from current line to cursor line
+    if (current_line > cursor_line) {
+        printf("\033[%dA", current_line - cursor_line);
+    }
+    
+    // Move to correct column
+    printf("\r\033[%dC", cursor_col);
+    
     fflush(stdout);
 }
 
@@ -457,15 +493,15 @@ char* read_line_with_history(InputHistory* hist, const char* prompt) {
                             redraw_line(prompt, buffer, cursor_pos);
                         }
                     } else {
-                        // Multiple matches - show them
+                        // Multiple matches - show them on a new line
                         printf("\n");
                         for (int i = first_match; i < COMMAND_COUNT && 
                              strncmp(COMMANDS[i], prefix, prefix_len) == 0; i++) {
                             printf("%s  ", COMMANDS[i]);
                         }
                         printf("\n");
-                        printf("%s%s", prompt, buffer);
-                        fflush(stdout);
+                        // Use redraw_line for proper cursor positioning
+                        redraw_line(prompt, buffer, cursor_pos);
                     }
                 }
             }

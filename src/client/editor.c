@@ -415,22 +415,56 @@ static void editor_draw(EditorState* E) {
     ab_append(&ab, CURSOR_HIDE, 6);
     ab_append(&ab, CURSOR_HOME, 3);
 
-    /* Draw lines */
-    for (int y = 0; y < E->screen_rows; y++) {
-        int filerow = y + E->row_offset;
-        if (filerow < E->line_count) {
-            char* line = E->lines[filerow];
-            int len = strlen(line) - E->col_offset;
-            if (len < 0) len = 0;
-            if (len > E->screen_cols) len = E->screen_cols;
-            if (len > 0) {
-                ab_append(&ab, line + E->col_offset, len);
+    /* Draw lines with word wrapping */
+    int screen_y = 0;
+    int file_line = E->row_offset;
+    int line_sub_row = 0;  // For wrapped lines, which sub-row we're on
+    
+    // Skip sub-rows for row_offset if the first visible line is wrapped
+    // (simplified: assume we start at beginning of visible content)
+    
+    while (screen_y < E->screen_rows) {
+        if (file_line < E->line_count) {
+            char* line = E->lines[file_line];
+            int line_len = strlen(line);
+            
+            if (line_len == 0) {
+                // Empty line
+                ab_append(&ab, ESC "[K", 3);
+                ab_append(&ab, "\r\n", 2);
+                screen_y++;
+                file_line++;
+                line_sub_row = 0;
+            } else {
+                // Calculate which portion of the line to show
+                int start_col = line_sub_row * E->screen_cols;
+                
+                if (start_col < line_len) {
+                    int remaining = line_len - start_col;
+                    int to_draw = (remaining > E->screen_cols) ? E->screen_cols : remaining;
+                    ab_append(&ab, line + start_col, to_draw);
+                }
+                
+                ab_append(&ab, ESC "[K", 3);
+                ab_append(&ab, "\r\n", 2);
+                screen_y++;
+                
+                // Check if more sub-rows needed for this line
+                int next_start = (line_sub_row + 1) * E->screen_cols;
+                if (next_start < line_len) {
+                    line_sub_row++;
+                } else {
+                    file_line++;
+                    line_sub_row = 0;
+                }
             }
         } else {
             ab_append(&ab, DIM "~" RESET, strlen(DIM) + 1 + strlen(RESET));
+            ab_append(&ab, ESC "[K", 3);
+            ab_append(&ab, "\r\n", 2);
+            screen_y++;
+            file_line++;
         }
-        ab_append(&ab, ESC "[K", 3); /* Clear to end of line */
-        ab_append(&ab, "\r\n", 2);
     }
 
     /* Status bar */
