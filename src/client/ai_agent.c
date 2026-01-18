@@ -18,7 +18,7 @@ static const char* get_api_key(void) {
 
 /**
  * @brief Helper to perform a non-interactive write to a file.
- *        Splits content into words and sends them to the SS.
+ *        Writes entire content at once using word_idx=-1 (full replacement).
  */
 static int auto_write_file(ClientState* state, const char* filename, const char* content) {
     int ss_socket;
@@ -44,43 +44,37 @@ static int auto_write_file(ClientState* state, const char* filename, const char*
 
     PRINT_INFO("AI Agent: Writing content to %s...", filename);
 
-    // 2. Parse content into words and send OP_SS_WRITE_WORD
-    char* content_copy = strdup(content);
-    char* saveptr;
-    char* token = strtok_r(content_copy, " \t\n\r", &saveptr);
-    int word_idx = 0;
+    // 2. Write entire content at once using word_idx=-1
+    init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_WORD, state->username);
+    strcpy(header.filename, filename);
+    header.sentence_index = 0;
 
-    while (token != NULL) {
-        // Prepare the write packet
-        memset(&header, 0, sizeof(header));
-        header.msg_type = MSG_REQUEST;
-        header.op_code = OP_SS_WRITE_WORD;
-        strcpy(header.filename, filename);
-        strcpy(header.username, state->username);
-        header.sentence_index = 0;
+    // Allocate payload: "-1 " + content
+    size_t content_len = strlen(content);
+    size_t payload_size = content_len + 8;  // "-1 " prefix + safety
+    char* payload = malloc(payload_size);
+    if (!payload) {
+        safe_close_socket(&ss_socket);
+        return ERR_FILE_OPERATION_FAILED;
+    }
+    snprintf(payload, payload_size, "-1 %s", content);
+    header.data_length = strlen(payload);
 
-        // Payload format: "word_index word_content"
-        char payload[BUFFER_SIZE];
-        snprintf(payload, sizeof(payload), "%d %s", word_idx++, token);
-        header.data_length = strlen(payload);
+    send_message(ss_socket, &header, payload);
+    free(payload);
+    
+    recv_message(ss_socket, &header, &response);
+    if (response) free(response);
 
-        send_message(ss_socket, &header, payload);
-        
-        // Wait for ACK for each word to ensure sync
-        recv_message(ss_socket, &header, &response);
-        if (response) free(response);
-
-        token = strtok_r(NULL, " \t\n\r", &saveptr);
+    if (header.msg_type != MSG_ACK) {
+        PRINT_ERR("Write failed: %s", get_error_message(header.error_code));
+        safe_close_socket(&ss_socket);
+        return header.error_code;
     }
 
-    free(content_copy);
-
     // 3. Unlock (ETIRW)
-    memset(&header, 0, sizeof(header));
-    header.msg_type = MSG_REQUEST;
-    header.op_code = OP_SS_WRITE_UNLOCK;
+    init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_UNLOCK, state->username);
     strcpy(header.filename, filename);
-    strcpy(header.username, state->username);
     header.sentence_index = 0;
     
     send_message(ss_socket, &header, NULL);
