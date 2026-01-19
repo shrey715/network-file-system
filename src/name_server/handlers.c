@@ -88,13 +88,36 @@ void* handle_client_connection(void* arg) {
                     snprintf(msg, sizeof(msg), 
                              "✓ Storage Server #%d registered | IP=%s | NM_Port=%d | Client_Port=%d", 
                              server_id, ip, nm_port, client_port);
-                    log_message("NM", "INFO", msg);
+                     log_message("NM", "INFO", msg);
+
+                    // Check if this SS needs to Sync from an Active Replica (Stale Detection)
+                    StorageServerInfo* ss = nm_find_storage_server(server_id);
+                    if (ss && ss->replica_active) {
+                        StorageServerInfo* replica = nm_find_storage_server(ss->replica_id);
+                        if (replica && replica->is_active) {
+                             char sync_payload[256];
+                             snprintf(sync_payload, sizeof(sync_payload), "SYNC %s %d", replica->ip, replica->client_port);
+                             
+                             // Send ACK with SYNC instruction
+                             header.msg_type = MSG_ACK;
+                             header.error_code = ERR_SUCCESS;
+                             header.data_length = strlen(sync_payload);
+                             send_message(client_fd, &header, sync_payload);
+                             
+                             char sync_msg[512];
+                             snprintf(sync_msg, sizeof(sync_msg), "[RECOVERY] Triggering SYNC for SS #%d from Replica SS #%d", server_id, replica->server_id);
+                             log_message("NM", "INFO", sync_msg);
+                             goto registration_done;
+                        }
+                    }
                 }
                 
                 header.msg_type = (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR;
                 header.error_code = result;
                 header.data_length = 0;
                 send_message(client_fd, &header, NULL);
+
+                registration_done:
                 
                 // Log acknowledgment sent
                 log_operation("NM", result == ERR_SUCCESS ? "INFO" : "ERROR",
@@ -521,16 +544,53 @@ void* handle_client_connection(void* arg) {
                     break;
                 }
                 
-                StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
-                if (!ss) {
+                // Find target Storage Server with Failover support
+                StorageServerInfo* target_ss = NULL;
+                StorageServerInfo* primary_ss = NULL;
+                
+                // 1. Find the Primary SS (even if inactive)
+                for (int i = 0; i < ns_state.ss_count; i++) {
+                    if (ns_state.storage_servers[i].server_id == file->ss_id) {
+                        primary_ss = &ns_state.storage_servers[i];
+                        break;
+                    }
+                }
+
+                if (primary_ss && primary_ss->is_active) {
+                    target_ss = primary_ss;
+                } else if (primary_ss && !primary_ss->is_active) {
+                    // 2. Failover: Check for active Replica
+                    // Allow failover for ALL operations now that we have version-based sync
+                    // When primary recovers, it will sync from replica using timestamps
+                    if (primary_ss->replica_active) {
+                        // Find the replica
+                        for (int i = 0; i < ns_state.ss_count; i++) {
+                            if (ns_state.storage_servers[i].server_id == primary_ss->replica_id &&
+                                ns_state.storage_servers[i].is_active) {
+                                target_ss = &ns_state.storage_servers[i];
+                                
+                                char alert[512];
+                                snprintf(alert, sizeof(alert), "[FAILOVER] Redirecting '%s' request for '%s' to Active Replica SS #%d (Primary SS #%d is DOWN)", 
+                                         op_name(header.op_code), header.filename, target_ss->server_id, primary_ss->server_id);
+                                log_message("NM", "WARN", alert);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!target_ss) {
                     result_code = ERR_SS_UNAVAILABLE;
-                    log_message("NM", "ERROR", "Storage server unavailable");
+                    log_message("NM", "ERROR", "Storage server unavailable (Primary and Replica both down or not found)");
                     header.msg_type = MSG_ERROR;
                     header.error_code = ERR_SS_UNAVAILABLE;
                     header.data_length = 0;
                     send_message(client_fd, &header, NULL);
                     break;
                 }
+
+                // Use target_ss for response
+                StorageServerInfo* ss = target_ss;
                 
                 // Send SS info to client
                 result_code = ERR_SUCCESS;
@@ -1394,25 +1454,52 @@ void* handle_client_connection(void* arg) {
                 // Storage server heartbeat - update last_heartbeat timestamp
                 int ss_id = header.flags;  // Server ID passed in flags field
                 
+                char payload[256] = "";
+
                 pthread_mutex_lock(&ns_state.lock);
                 int found = 0;
                 for (int i = 0; i < ns_state.ss_count; i++) {
                     if (ns_state.storage_servers[i].server_id == ss_id) {
+                        // Check if server was previously inactive (Recovery Detect)
+                        if (!ns_state.storage_servers[i].is_active) {
+                            ns_state.storage_servers[i].is_active = 1;
+                            
+                            char rec_msg[256];
+                            snprintf(rec_msg, sizeof(rec_msg), 
+                                     "✓ Heartbeat RESUMED from Storage Server #%d | IP=%s | Sync state: ACTIVE", 
+                                     ss_id, ns_state.storage_servers[i].ip);
+                            log_message("NM", "INFO", rec_msg);
+                        }
+                        
                         ns_state.storage_servers[i].last_heartbeat = time(NULL);
                         found = 1;
+
+                        // Check and append Replica Info if active
+                        if (ns_state.storage_servers[i].replica_active) {
+                             int replica_id = ns_state.storage_servers[i].replica_id;
+                             for (int j = 0; j < ns_state.ss_count; j++) {
+                                 if (ns_state.storage_servers[j].server_id == replica_id &&
+                                     ns_state.storage_servers[j].is_active) {
+                                     snprintf(payload, sizeof(payload), "REPLICA %s %d", 
+                                              ns_state.storage_servers[j].ip, 
+                                              ns_state.storage_servers[j].client_port);
+                                     break;
+                                 }
+                             }
+                        }
                         break;
                     }
                 }
                 pthread_mutex_unlock(&ns_state.lock);
                 
-                // Send acknowledgment
+                // Send acknowledgment with payload (if any)
                 header.msg_type = MSG_ACK;
                 header.error_code = found ? ERR_SUCCESS : ERR_SS_UNAVAILABLE;
-                header.data_length = 0;
-                send_message(client_fd, &header, NULL);
+                header.data_length = strlen(payload);
+                send_message(client_fd, &header, payload);
                 
                 result_code = header.error_code;
-                snprintf(details, sizeof(details), "♥ SS_ID=%d", ss_id);
+                snprintf(details, sizeof(details), "SS_ID=%d", ss_id);
                 break;
             }
             
@@ -1426,10 +1513,12 @@ void* handle_client_connection(void* arg) {
                 break;
         }
         
-        // Log the completed operation
-        log_operation("NM", result_code == ERR_SUCCESS ? "INFO" : "ERROR",
-                     operation, header.username[0] ? header.username : connected_username, 
-                     client_ip, client_port, details, result_code);
+        // Log the completed operation (SKIP healthy heartbeats to avoid spam)
+        if (header.op_code != OP_HEARTBEAT || result_code != ERR_SUCCESS) {
+            log_operation("NM", result_code == ERR_SUCCESS ? "INFO" : "ERROR",
+                         operation, header.username[0] ? header.username : connected_username, 
+                         client_ip, client_port, details, result_code);
+        }
         
         if (payload) {
             free(payload);
@@ -1519,10 +1608,10 @@ void* handle_ss_connection(void* arg) {
                 if (ns_state.storage_servers[i].server_id == ss_id) {
                     ns_state.storage_servers[i].last_heartbeat = time(NULL);
                     
-                    char hb_msg[256];
+                    /* char hb_msg[256];
                     snprintf(hb_msg, sizeof(hb_msg), "Heartbeat received from SS #%d", ss_id);
                     log_operation("NM", "DEBUG", "SS_HEARTBEAT", "system",
-                                 ss_ip, ss_port, hb_msg, ERR_SUCCESS);
+                                 ss_ip, ss_port, hb_msg, ERR_SUCCESS); */
                     break;
                 }
             }

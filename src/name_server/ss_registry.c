@@ -98,12 +98,35 @@ int nm_register_storage_server(int server_id, const char* ip, int nm_port, int c
         ss->files = NULL;
         ss->file_count = 0;
         
+        // Replica Pairing Logic
+        // Strategy: Odd IDs are Primary, Even IDs (ID+1) are Replicas (and vice versa)
+        int partner_id = (server_id % 2 != 0) ? (server_id + 1) : (server_id - 1);
+        ss->replica_id = partner_id;
+        ss->replica_active = 0; // Default until we find partner
+
+        // Check if partner exists and link them
+        for (int i = 0; i < ns_state.ss_count; i++) {
+            if (ns_state.storage_servers[i].server_id == partner_id) {
+                // Partner found! Link them reciprocally.
+                ns_state.storage_servers[i].replica_id = server_id;
+                ns_state.storage_servers[i].replica_active = 1;
+
+                ss->replica_active = ns_state.storage_servers[i].is_active;
+
+                char link_msg[256];
+                snprintf(link_msg, sizeof(link_msg), 
+                         "[LINK] Paired SS #%d with Replica SS #%d", server_id, partner_id);
+                log_message("NM", "INFO", link_msg);
+                break;
+            }
+        }
+        
         ns_state.ss_count++;
         pthread_mutex_unlock(&ns_state.lock);
         
         char msg[512];
         snprintf(msg, sizeof(msg), 
-                 "✓ Registered NEW Storage Server #%d | IP=%s | Client_Port=%d",
+                 "[NEW] Registered NEW Storage Server #%d | IP=%s | Client_Port=%d",
                  server_id, ip, client_port);
         log_message("NM", "INFO", msg);
         

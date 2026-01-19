@@ -42,9 +42,26 @@ void* send_heartbeats(void* arg) {
                 char* response = NULL;
                 if (recv_message(nm_socket, &header, &response) > 0) {
                     if (header.msg_type == MSG_ACK) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg), "♥ Heartbeat sent to NM (SS #%d)", config->server_id);
-                        log_message("SS", "DEBUG", msg);
+                        if (header.data_length > 0 && response) {
+                             // Check for REPLICA info payload from NS
+                             if (strncmp(response, "REPLICA", 7) == 0) {
+                                  char ip[MAX_IP];
+                                  int port;
+                                  if (sscanf(response, "REPLICA %s %d", ip, &port) == 2) {
+                                       if (strcmp(config->replica_ip, ip) != 0 || config->replica_port != port) {
+                                            strncpy(config->replica_ip, ip, MAX_IP - 1);
+                                            config->replica_port = port;
+                                            
+                                            char link_msg[256];
+                                            snprintf(link_msg, sizeof(link_msg), "[LINK] Linked with Replica at %s:%d", ip, port);
+                                            log_message("SS", "INFO", link_msg);
+                                       }
+                                  }
+                             }
+                        }
+
+                        /* snprintf(msg, sizeof(msg), "[HEARTBEAT] Heartbeat sent to NM (SS #%d)", config->server_id);
+                        log_message("SS", "DEBUG", msg); */
                     }
                 }
                 if (response) free(response);
@@ -184,6 +201,22 @@ int main(int argc, char* argv[]) {
     log_operation("SS", "INFO", "SS_REGISTER", "system", 
                  config.nm_ip, config.nm_port, reg_details, ERR_SUCCESS);
     log_message("SS", "INFO", "✓ Successfully registered with Name Server");
+
+    // Check for SYNC instruction from Name Server (Recovery Mode)
+    if (header.data_length > 0 && response) {
+        if (strncmp(response, "SYNC", 4) == 0) {
+            char sync_ip[MAX_IP];
+            int sync_port;
+            if (sscanf(response, "SYNC %s %d", sync_ip, &sync_port) == 2) {
+                char msg[512];
+                snprintf(msg, sizeof(msg), "[RECOVERY] Name Server requested SYNC from Active Replica at %s:%d", sync_ip, sync_port);
+                log_message("SS", "WARN", msg);
+                
+                // Perform Full Sync
+                ss_start_recovery_sync(sync_ip, sync_port);
+            }
+        }
+    }
     
     if (response) free(response);
     close(nm_socket);  // Close registration connection

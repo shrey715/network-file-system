@@ -594,6 +594,12 @@ int ss_write_word(const char* filename, int sentence_idx, int word_idx,
     }
     
     // Split sentence into words (use dynamic copy to avoid truncation)
+    // Save undo snapshot before first modification in this session
+    if (!locked_file->undo_saved) {
+        ss_save_undo(filename);
+        locked_file->undo_saved = 1;
+    }
+
     char* sentence_copy = strdup(target_sentence->text);
     if (!sentence_copy) {
         return ERR_FILE_OPERATION_FAILED;
@@ -1162,6 +1168,47 @@ void send_simple_response(int client_fd, int msg_type, int error_code) {
 }
 
 /**
+ * ss_forward_to_replica
+ * @brief Helper to forward operations to the replica synchronously.
+ * @return 0 on success (or if no replica), -1 on failure
+ */
+int ss_forward_to_replica(MessageHeader *header, const char *payload, const char *op_name) {
+    if (config.replica_port <= 0 || (header->flags & FLAG_IS_REPLICATION)) {
+        return 0; // No replica configured or already a replication op
+    }
+
+    log_message("SS", "INFO", "[REPLICATION] Forwarding operation to replica...");
+    int replica_sock = connect_to_server(config.replica_ip, config.replica_port);
+    if (replica_sock <= 0) {
+        log_message("SS", "WARN", "[REPLICATION] Failed to connect to Replica");
+        return -1;
+    }
+
+    MessageHeader rep_header = *header;
+    rep_header.flags |= FLAG_IS_REPLICATION;
+    
+    if (send_message(replica_sock, &rep_header, payload) < 0) {
+        log_message("SS", "WARN", "[REPLICATION] Failed to send message to Replica");
+        close(replica_sock);
+        return -1;
+    }
+
+    // Wait for ACK
+    MessageHeader ack;
+    if (recv_message(replica_sock, &ack, NULL) <= 0 || ack.msg_type != MSG_ACK) {
+        char err[256];
+        snprintf(err, sizeof(err), "[REPLICATION] Replica %s FAILED (No ACK)", op_name);
+        log_message("SS", "WARN", err);
+        close(replica_sock);
+        return -1;
+    }
+
+    log_message("SS", "INFO", "[REPLICATION] Replica confirmed operation");
+    close(replica_sock);
+    return 0;
+}
+
+/**
  * handle_ss_create
  * @brief Handler for OP_SS_CREATE operation.
  */
@@ -1183,10 +1230,15 @@ int handle_ss_create(int client_fd, MessageHeader* header, const char* payload) 
     
     int result = ss_create_file(fullpath, payload ? payload : "unknown");
     
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, payload, "CREATE");
+    }
+    
     // Log completion
     if (result == ERR_SUCCESS) {
         char msg[1200];
-        snprintf(msg, sizeof(msg), "✓ File '%s' created successfully", fullpath);
+        snprintf(msg, sizeof(msg), "[SUCCESS] File '%s' created successfully", fullpath);
         log_message("SS", "INFO", msg);
     } else {
         char msg[1200];
@@ -1213,14 +1265,19 @@ int handle_ss_delete(int client_fd, MessageHeader* header) {
     
     int result = ss_delete_file(header->filename);
     
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, NULL, "DELETE");
+    }
+
     // Log result
     if (result == ERR_SUCCESS) {
         char msg[1200];
-        snprintf(msg, sizeof(msg), "✓ File '%s' deleted successfully", header->filename);
+        snprintf(msg, sizeof(msg), "[SUCCESS] File '%s' deleted successfully", header->filename);
         log_message("SS", "INFO", msg);
     } else {
         char msg[1200];
-        snprintf(msg, sizeof(msg), "✗ File deletion failed for '%s': %s", 
+        snprintf(msg, sizeof(msg), "[ERROR] File deletion failed for '%s': %s", 
                  header->filename, get_error_message(result));
         log_message("SS", "ERROR", msg);
     }
@@ -1269,6 +1326,12 @@ int handle_ss_read(int client_fd, MessageHeader* header) {
  */
 void handle_ss_write_lock(int client_fd, MessageHeader* header) {
     int result = ss_write_lock(header->filename, header->sentence_index, header->username);
+    
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, NULL, "WRITE_LOCK");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1313,6 +1376,11 @@ void handle_ss_write_word(int client_fd, MessageHeader* header, const char* payl
                                word_idx, new_word, header->username);
     free(new_word);
 
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, payload, "WRITE_WORD");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1324,6 +1392,12 @@ void handle_ss_write_word(int client_fd, MessageHeader* header, const char* payl
  */
 void handle_ss_write_unlock(int client_fd, MessageHeader* header) {
     int result = ss_write_unlock(header->filename, header->sentence_index, header->username);
+    
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, NULL, "WRITE_UNLOCK");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1437,6 +1511,12 @@ void handle_ss_info(int client_fd, MessageHeader* header) {
  */
 void handle_ss_undo(int client_fd, MessageHeader* header) {
     int result = ss_undo_file(header->filename);
+
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, NULL, "UNDO");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1455,6 +1535,12 @@ void handle_ss_move(int client_fd, MessageHeader* header, const char* payload) {
     // header->filename contains old path
     // payload contains new path
     int result = ss_move_file(header->filename, payload);
+
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, payload, "MOVE");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1466,6 +1552,12 @@ void handle_ss_move(int client_fd, MessageHeader* header, const char* payload) {
  */
 void handle_ss_checkpoint(int client_fd, MessageHeader* header) {
     int result = ss_create_checkpoint(header->filename, header->checkpoint_tag);
+
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, NULL, "CHECKPOINT");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1499,6 +1591,12 @@ void handle_ss_viewcheckpoint(int client_fd, MessageHeader* header) {
  */
 void handle_ss_revert(int client_fd, MessageHeader* header) {
     int result = ss_revert_checkpoint(header->filename, header->checkpoint_tag);
+
+    // Synchronous Replication
+    if (result == ERR_SUCCESS) {
+        ss_forward_to_replica(header, NULL, "REVERT");
+    }
+
     send_simple_response(client_fd, 
                         (result == ERR_SUCCESS) ? MSG_ACK : MSG_ERROR, 
                         result);
@@ -1577,6 +1675,7 @@ void* handle_client_request(void* arg) {
             case OP_SS_VIEWCHECKPOINT: operation = "VIEW_CHECKPOINT"; break;
             case OP_SS_REVERT: operation = "REVERT"; break;
             case OP_SS_LISTCHECKPOINTS: operation = "LIST_CHECKPOINTS"; break;
+            case OP_SS_SYNC: operation = "SYNC"; break;
             case OP_EXEC: operation = "EXEC"; break;
             default: operation = "UNKNOWN"; break;
         }
@@ -1608,6 +1707,11 @@ void* handle_client_request(void* arg) {
                 keep_alive = 0;
                 break;
             
+            case OP_SS_SYNC:
+                handle_ss_sync(client_fd, &header, payload);
+                keep_alive = 0;
+                break;
+
             case OP_SS_WRITE_LOCK:
                 result_code = ERR_SUCCESS;  // Will be handled by write_lock handler
                 handle_ss_write_lock(client_fd, &header);

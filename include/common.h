@@ -8,7 +8,6 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,12 +57,17 @@
 #define ANSI_SLATE "\033[38;5;245m"
 
 // Box drawing and UI symbols
-#define UI_ARROW "→"
-#define UI_CHECK "✓"
-#define UI_CROSS "✗"
-#define UI_DOT "•"
-#define UI_STAR "★"
-#define UI_PROMPT "❯"
+#define UI_ARROW "->"
+#define UI_CHECK "[OK]"
+#define UI_CROSS "[ERROR]"
+#define UI_DOT "*"
+#define UI_STAR "*"
+#define UI_PROMPT ">"
+
+// Flags
+#define FLAG_SHOW_HIDDEN 0x01
+#define FLAG_SHOW_DETAILS 0x02
+#define FLAG_IS_REPLICATION 0x04
 
 // Global toggle to enable/disable colors at runtime. Define in one C file.
 extern int enable_colors;
@@ -130,9 +134,8 @@ extern int enable_colors;
   2048                         // Maximum length for sentence content snapshot
 #define LRU_CACHE_SIZE 100     // Size of LRU cache for file lookups
 #define TRIE_ALPHABET_SIZE 256 // ASCII character set for Trie
-#define HEARTBEAT_TIMEOUT                                                      \
-  30 // Seconds before marking storage server as inactive
-#define HEARTBEAT_CHECK_INTERVAL 10 // Seconds between heartbeat checks
+#define HEARTBEAT_TIMEOUT 5 // Seconds before marking storage server as inactive
+#define HEARTBEAT_CHECK_INTERVAL 2 // Seconds between heartbeat checks
 
 // ============ MESSAGE TYPES ============
 #define MSG_REQUEST 1
@@ -187,6 +190,10 @@ extern int enable_colors;
 #define OP_SS_VIEWCHECKPOINT 49
 #define OP_SS_REVERT 50
 #define OP_SS_LISTCHECKPOINTS 51
+
+// Sync Operations
+#define OP_REQ_SYNC 90 // NS -> SS (Recovering)
+#define OP_SS_SYNC 91  // SS (Recovering) -> SS (Active)
 
 // ============ ERROR CODES ============
 #define ERR_SUCCESS 0

@@ -119,8 +119,8 @@ int main(int argc, char* argv[]) {
             char ip[MAX_IP];
             inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
             
-            snprintf(msg, sizeof(msg), "New connection from %s (fd %d)", ip, *client_fd);
-            log_message("NM", "INFO", msg);
+            /* snprintf(msg, sizeof(msg), "New connection from %s (fd %d)", ip, *client_fd);
+            log_message("NM", "INFO", msg); */
             
             pthread_t thread;
             pthread_create(&thread, NULL, handle_client_connection, client_fd);

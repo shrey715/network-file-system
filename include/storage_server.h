@@ -35,7 +35,11 @@ typedef struct {
   int nm_port;
   int client_port;
   char storage_dir[MAX_STORAGE_DIR];
+  char replica_ip[MAX_IP];
+  int replica_port;
 } SSConfig;
+
+extern SSConfig config;
 
 // Active file sessions
 typedef struct {
@@ -159,5 +163,9 @@ void save_file_metadata(const char *filename, const char *owner);
 // Safe path construction
 int ss_build_filepath(char *dest, size_t dest_size, const char *filename,
                       const char *extension);
+
+// Sync / Recovery
+void ss_start_recovery_sync(const char *replica_ip, int replica_port);
+void handle_ss_sync(int client_fd, MessageHeader *header, const char *payload);
 
 #endif // STORAGE_SERVER_H
