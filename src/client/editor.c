@@ -5,6 +5,7 @@
  */
 
 #include "editor.h"
+#include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,8 @@
 #include <errno.h>
 #include <ctype.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
+#include <time.h>
 
 /* ANSI escape codes */
 #define ESC "\x1b"
@@ -650,6 +653,95 @@ static void editor_process_key(EditorState* E) {
     }
 }
 
+/**
+ * editor_enable_live_updates - Enable polling for file changes
+ */
+void editor_enable_live_updates(EditorState* E, const char* ss_ip, int ss_port,
+                                const char* username) {
+    if (!E) return;
+    E->live_updates_enabled = 1;
+    strncpy(E->ss_ip, ss_ip, sizeof(E->ss_ip) - 1);
+    E->ss_ip[sizeof(E->ss_ip) - 1] = '\0';
+    E->ss_port = ss_port;
+    strncpy(E->username, username, sizeof(E->username) - 1);
+    E->username[sizeof(E->username) - 1] = '\0';
+    E->last_mtime = 0;
+}
+
+/**
+ * editor_poll_updates - Check if file has been modified and refresh if so
+ * @return 1 if content was refreshed, 0 otherwise
+ */
+static int editor_poll_updates(EditorState* E) {
+    if (!E || !E->live_updates_enabled || !E->filename) return 0;
+    
+    // Connect to storage server
+    int sock = connect_to_server(E->ss_ip, E->ss_port);
+    if (sock < 0) return 0;
+    
+    // Request mtime check
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, OP_SS_CHECK_MTIME, E->username);
+    strncpy(header.filename, E->filename, MAX_FILENAME - 1);
+    send_message(sock, &header, NULL);
+    
+    char* payload = NULL;
+    recv_message(sock, &header, &payload);
+    close(sock);
+    
+    if (header.msg_type != MSG_RESPONSE || !payload) {
+        if (payload) free(payload);
+        return 0;
+    }
+    
+    long remote_mtime = atol(payload);
+    free(payload);
+    
+    // First poll - just record the mtime
+    if (E->last_mtime == 0) {
+        E->last_mtime = remote_mtime;
+        return 0;
+    }
+    
+    // No change
+    if (remote_mtime <= E->last_mtime) {
+        return 0;
+    }
+    
+    // File changed! Fetch new content
+    E->last_mtime = remote_mtime;
+    
+    sock = connect_to_server(E->ss_ip, E->ss_port);
+    if (sock < 0) return 0;
+    
+    init_message_header(&header, MSG_REQUEST, OP_SS_READ, E->username);
+    strncpy(header.filename, E->filename, MAX_FILENAME - 1);
+    send_message(sock, &header, NULL);
+    
+    char* content = NULL;
+    recv_message(sock, &header, &content);
+    close(sock);
+    
+    if (header.msg_type == MSG_RESPONSE && content) {
+        // Clear and reload content
+        for (int i = 0; i < E->line_count; i++) {
+            free(E->lines[i]);
+        }
+        E->line_count = 0;
+        
+        editor_load_content(E, content);
+        editor_set_status(E, "[LIVE] Content updated by another user");
+        free(content);
+        return 1;
+    }
+    
+    if (content) free(content);
+    return 0;
+}
+
+/**
+ * editor_run_with_live_updates - Main loop with periodic polling
+ */
 void editor_run(EditorState* E) {
     if (!E) return;
 
@@ -657,9 +749,36 @@ void editor_run(EditorState* E) {
     write(STDOUT_FILENO, ALT_SCREEN_ON, strlen(ALT_SCREEN_ON));
     write(STDOUT_FILENO, CLEAR_SCREEN CURSOR_HOME, strlen(CLEAR_SCREEN CURSOR_HOME));
 
+    time_t last_poll = time(NULL);
+    
     while (!E->quit_requested) {
         editor_draw(E);
-        editor_process_key(E);
+        
+        // Use select() to wait for input with timeout for live updates
+        if (E->live_updates_enabled) {
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(STDIN_FILENO, &readfds);
+            
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 100000; // 100ms timeout
+            
+            int ready = select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv);
+            
+            if (ready > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+                editor_process_key(E);
+            }
+            
+            // Poll for updates every 2 seconds
+            time_t now = time(NULL);
+            if (now - last_poll >= 2) {
+                editor_poll_updates(E);
+                last_poll = now;
+            }
+        } else {
+            editor_process_key(E);
+        }
     }
 
     /* Exit alternate screen buffer - restores original terminal content */

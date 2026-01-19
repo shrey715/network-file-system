@@ -486,3 +486,31 @@ int get_file_stats(const char* filename, char* stats_out, size_t bufsize) {
     
     return ERR_SUCCESS;
 }
+
+/**
+ * ss_get_file_mtime
+ * @brief Get the modified timestamp of a file from its .meta file.
+ *
+ * @param filename Null-terminated filename.
+ * @return Modified timestamp, or 0 if not found.
+ */
+time_t ss_get_file_mtime(const char* filename) {
+    char metapath[MAX_PATH];
+    if (ss_build_filepath(metapath, sizeof(metapath), filename, ".meta") != ERR_SUCCESS) {
+        return 0;
+    }
+    
+    FILE* f = fopen(metapath, "r");
+    if (!f) return 0;
+    
+    time_t modified = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "modified:", 9) == 0) {
+            sscanf(line, "modified:%ld", &modified);
+            break;
+        }
+    }
+    fclose(f);
+    return modified;
+}

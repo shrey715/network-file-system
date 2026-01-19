@@ -168,4 +168,7 @@ int ss_build_filepath(char *dest, size_t dest_size, const char *filename,
 void ss_start_recovery_sync(const char *replica_ip, int replica_port);
 void handle_ss_sync(int client_fd, MessageHeader *header, const char *payload);
 
+// Live Updates
+time_t ss_get_file_mtime(const char *filename);
+
 #endif // STORAGE_SERVER_H

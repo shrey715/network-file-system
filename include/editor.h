@@ -67,6 +67,13 @@ typedef struct {
   int quit_requested;
   int save_requested;
   int read_only;
+
+  /* Live updates (for open/view mode) */
+  int live_updates_enabled;
+  char ss_ip[32];
+  int ss_port;
+  long last_mtime;
+  char username[64];
 } EditorState;
 
 /**
@@ -145,5 +152,16 @@ void editor_set_status(EditorState *E, const char *fmt, ...);
  */
 void editor_set_file_info(EditorState *E, const char *filename, int sentence_id,
                           int is_locked, const char *locked_by);
+
+/**
+ * editor_enable_live_updates - Enable polling for file changes
+ *
+ * @param E        Editor state
+ * @param ss_ip    Storage server IP
+ * @param ss_port  Storage server port
+ * @param username Username for requests
+ */
+void editor_enable_live_updates(EditorState *E, const char *ss_ip, int ss_port,
+                                const char *username);
 
 #endif /* EDITOR_H */

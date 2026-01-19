@@ -139,6 +139,53 @@ int get_storage_server_connection(ClientState* state, const char* filename, int 
 }
 
 /**
+ * get_storage_server_connection_ex
+ * @brief Extended version that also returns SS IP and port for live updates.
+ */
+int get_storage_server_connection_ex(ClientState* state, const char* filename, int op_code, 
+                                     int* ss_socket_out, char* ss_ip_out, int* ss_port_out) {
+    MessageHeader header;
+    init_message_header(&header, MSG_REQUEST, op_code, state->username);
+    strcpy(header.filename, filename);
+    
+    char* ss_info = NULL;
+    if (send_nm_request_and_get_response(state, &header, NULL, &ss_info) != ERR_SUCCESS) {
+        if (ss_info) free(ss_info);
+        return ERR_NETWORK_ERROR;
+    }
+    
+    if (header.msg_type != MSG_RESPONSE) {
+        PRINT_ERR("%s", get_error_message(header.error_code));
+        if (ss_info) free(ss_info);
+        return header.error_code;
+    }
+    
+    // Parse SS IP and port
+    char ss_ip[MAX_IP];
+    int ss_port;
+    if (parse_ss_info(ss_info, ss_ip, &ss_port) != 0) {
+        PRINT_ERR("Invalid storage server info");
+        free(ss_info);
+        return ERR_NETWORK_ERROR;
+    }
+    free(ss_info);
+    
+    // Return SS info for live updates
+    if (ss_ip_out) strncpy(ss_ip_out, ss_ip, MAX_IP - 1);
+    if (ss_port_out) *ss_port_out = ss_port;
+    
+    // Connect to SS
+    int ss_socket = connect_to_server(ss_ip, ss_port);
+    if (ss_socket < 0) {
+        PRINT_ERR("Failed to connect to storage server");
+        return ERR_SS_UNAVAILABLE;
+    }
+    
+    *ss_socket_out = ss_socket;
+    return ERR_SUCCESS;
+}
+
+/**
  * execute_view
  * @brief Send a VIEW request to the Name Server and print the response.
  *
@@ -1473,7 +1520,10 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
  */
 int execute_open(ClientState* state, const char* filename) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_READ, &ss_socket);
+    char ss_ip[MAX_IP] = {0};
+    int ss_port = 0;
+    
+    int result = get_storage_server_connection_ex(state, filename, OP_READ, &ss_socket, ss_ip, &ss_port);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -1506,10 +1556,14 @@ int execute_open(ClientState* state, const char* filename) {
     editor_load_content(E, content ? content : "(empty file)");
     editor_set_file_info(E, filename, -1, 0, NULL);
     E->read_only = 1;
-    editor_set_status(E, "View mode - Ctrl+Q to quit");
+    
+    /* Enable live updates - poll for changes every 2 seconds */
+    editor_enable_live_updates(E, ss_ip, ss_port, state->username);
+    editor_set_status(E, "View mode (LIVE) - Ctrl+Q to quit");
+    
     if (content) free(content);
 
-    /* Run editor (read-only viewing) */
+    /* Run editor (read-only viewing with live updates) */
     editor_run(E);
 
     disable_raw_mode();

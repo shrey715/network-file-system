@@ -1676,6 +1676,7 @@ void* handle_client_request(void* arg) {
             case OP_SS_REVERT: operation = "REVERT"; break;
             case OP_SS_LISTCHECKPOINTS: operation = "LIST_CHECKPOINTS"; break;
             case OP_SS_SYNC: operation = "SYNC"; break;
+            case OP_SS_CHECK_MTIME: operation = "CHECK_MTIME"; break;
             case OP_EXEC: operation = "EXEC"; break;
             default: operation = "UNKNOWN"; break;
         }
@@ -1711,6 +1712,21 @@ void* handle_client_request(void* arg) {
                 handle_ss_sync(client_fd, &header, payload);
                 keep_alive = 0;
                 break;
+
+            case OP_SS_CHECK_MTIME: {
+                // Return file's modified timestamp for live update polling
+                time_t mtime = ss_get_file_mtime(header.filename);
+                char mtime_str[32];
+                snprintf(mtime_str, sizeof(mtime_str), "%ld", (long)mtime);
+                
+                MessageHeader resp;
+                init_message_header(&resp, MSG_RESPONSE, OP_SS_CHECK_MTIME, "system");
+                resp.error_code = ERR_SUCCESS;
+                resp.data_length = strlen(mtime_str);
+                send_message(client_fd, &resp, mtime_str);
+                keep_alive = 0;
+                break;
+            }
 
             case OP_SS_WRITE_LOCK:
                 result_code = ERR_SUCCESS;  // Will be handled by write_lock handler

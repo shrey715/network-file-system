@@ -190,6 +190,7 @@ extern int enable_colors;
 #define OP_SS_VIEWCHECKPOINT 49
 #define OP_SS_REVERT 50
 #define OP_SS_LISTCHECKPOINTS 51
+#define OP_SS_CHECK_MTIME 52 // Check file modified time (for live updates)
 
 // Sync Operations
 #define OP_REQ_SYNC 90 // NS -> SS (Recovering)
