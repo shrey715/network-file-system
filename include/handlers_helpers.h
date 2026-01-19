@@ -94,6 +94,57 @@ static inline int connect_to_ss(FileMetadata *file, SSConnection *conn) {
 }
 
 /**
+ * Get storage server with failover support.
+ *
+ * First tries the primary SS. If inactive, checks for active replica.
+ * Logs failover when it occurs.
+ *
+ * @param ss_id     Primary storage server ID
+ * @param op_name   Operation name for logging
+ * @param filename  Filename for logging
+ * @return Pointer to active SS or NULL if unavailable
+ */
+static inline StorageServerInfo *
+get_ss_with_failover(int ss_id, const char *op_name_str, const char *filename) {
+  StorageServerInfo *primary_ss = NULL;
+
+  // Find primary SS
+  for (int i = 0; i < ns_state.ss_count; i++) {
+    if (ns_state.storage_servers[i].server_id == ss_id) {
+      primary_ss = &ns_state.storage_servers[i];
+      break;
+    }
+  }
+
+  if (!primary_ss)
+    return NULL;
+
+  // Primary is active - use it
+  if (primary_ss->is_active) {
+    return primary_ss;
+  }
+
+  // Try failover to replica
+  if (primary_ss->replica_active) {
+    for (int i = 0; i < ns_state.ss_count; i++) {
+      if (ns_state.storage_servers[i].server_id == primary_ss->replica_id &&
+          ns_state.storage_servers[i].is_active) {
+        char alert[512];
+        snprintf(alert, sizeof(alert),
+                 "[FAILOVER] Redirecting '%s' for '%s' to Replica SS #%d "
+                 "(Primary #%d DOWN)",
+                 op_name_str, filename, ns_state.storage_servers[i].server_id,
+                 ss_id);
+        log_message("NM", "WARN", alert);
+        return &ns_state.storage_servers[i];
+      }
+    }
+  }
+
+  return NULL; // No active SS available
+}
+
+/**
  * Forward a request to the storage server and relay response to client.
  *
  * Handles permission checking, SS connection, message forwarding, and cleanup.

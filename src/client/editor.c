@@ -17,7 +17,7 @@
 #include <sys/select.h>
 #include <time.h>
 
-/* ANSI escape codes */
+/* ANSI escape codes for terminal control (editor-specific) */
 #define ESC "\x1b"
 #define CLEAR_SCREEN ESC "[2J"
 #define CURSOR_HOME ESC "[H"
@@ -26,12 +26,14 @@
 #define ALT_SCREEN_ON ESC "[?1049h"
 #define ALT_SCREEN_OFF ESC "[?1049l"
 #define INVERT ESC "[7m"
-#define RESET ESC "[0m"
-#define BOLD ESC "[1m"
-#define DIM ESC "[2m"
-#define CYAN ESC "[36m"
-#define YELLOW ESC "[33m"
-#define GREEN ESC "[32m"
+
+/* Use ANSI colors from common.h: ANSI_RESET, ANSI_BOLD, ANSI_DIM, ANSI_CYAN, etc. */
+#define RESET ANSI_RESET
+#define BOLD ANSI_BOLD
+#define DIM ANSI_DIM
+#define CYAN ANSI_CYAN
+#define YELLOW ANSI_YELLOW
+#define GREEN ANSI_GREEN
 
 /* Control key macro */
 #define CTRL_KEY(k) ((k) & 0x1f)

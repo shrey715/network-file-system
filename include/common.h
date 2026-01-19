@@ -253,6 +253,15 @@ void init_message_header(MessageHeader *header, int msg_type, int op_code,
 int parse_ss_info(const char *ss_info, char *ip_out, int *port_out);
 void safe_close_socket(int *sockfd);
 
+// Response initialization macro (reduces 4-line pattern to 1 line)
+#define INIT_RESPONSE_HEADER(h, type, err)                                     \
+  do {                                                                         \
+    memset((h), 0, sizeof(MessageHeader));                                     \
+    (h)->msg_type = (type);                                                    \
+    (h)->error_code = (err);                                                   \
+    (h)->data_length = 0;                                                      \
+  } while (0)
+
 //* Global logging configuration */
 extern int enable_colors;
 extern int debug_mode;
@@ -269,6 +278,8 @@ int visual_strlen(
 char *read_file_content(const char *filepath);
 int write_file_content(const char *filepath, const char *content);
 void safe_strncpy(char *dest, const char *src, size_t n);
+int construct_full_path(char *dest, size_t size, const char *folder,
+                        const char *filename);
 int file_exists(const char *filepath);
 long get_file_size(const char *filepath);
 int is_valid_filename(

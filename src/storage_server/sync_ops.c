@@ -112,7 +112,7 @@ void ss_start_recovery_sync(const char *replica_ip, int replica_port) {
                     if (strncmp(filename, "./", 2) == 0) clean_filename += 2;
                     else if (filename[0] == '/') clean_filename += 1;
                     
-                    snprintf(fullpath, sizeof(fullpath), "%s/%s", config.storage_dir, clean_filename);
+                    construct_full_path(fullpath, sizeof(fullpath), config.storage_dir, clean_filename);
                     
                     if (write_file_content(fullpath, content) == ERR_SUCCESS) {
                          char msg[512];
@@ -210,7 +210,7 @@ void handle_ss_sync(int client_fd, MessageHeader *header, const char *payload) {
             }
             
             char fullpath[MAX_PATH];
-            snprintf(fullpath, sizeof(fullpath), "%s/%s", config.storage_dir, dir->d_name);
+            construct_full_path(fullpath, sizeof(fullpath), config.storage_dir, dir->d_name);
             
             // Get local file's modified time
             time_t local_mtime = get_file_modified_time(dir->d_name);

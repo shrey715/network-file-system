@@ -261,3 +261,38 @@ int is_valid_filename(const char* filename) {
     
     return 1;  // Valid filename
 }
+
+/**
+ * construct_full_path
+ * @brief Safely construct a full path from a folder and filename.
+ *
+ * Concatenates "folder/filename" into the destination buffer.
+ * Handles missing or redundant slashes.
+ * Guarantees null-termination.
+ *
+ * @param dest Destination buffer
+ * @param size Size of destination buffer
+ * @param folder Folder path (optional)
+ * @param filename Filename
+ * @return 0 on success, -1 on truncation or invalid input
+ */
+int construct_full_path(char *dest, size_t size, const char *folder, const char *filename) {
+    if (!dest || size == 0 || !filename) return -1;
+    
+    int written;
+    if (folder && folder[0] != '\0') {
+        // Check if folder already ends with /
+        size_t folder_len = strlen(folder);
+        const char *sep = (folder[folder_len - 1] == '/') ? "" : "/";
+        
+        written = snprintf(dest, size, "%s%s%s", folder, sep, filename);
+    } else {
+        written = snprintf(dest, size, "%s", filename);
+    }
+    
+    if (written < 0 || (size_t)written >= size) {
+        return -1; // Truncation or error
+    }
+    
+    return 0;
+}

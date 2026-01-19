@@ -22,13 +22,13 @@ static const char* get_api_key(void) {
  */
 static int auto_write_file(ClientState* state, const char* filename, const char* content) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket);
+    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket, NULL, NULL);
     if (result != ERR_SUCCESS) return result;
 
     // 1. Lock Sentence 0 (We assume a new empty file)
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_LOCK, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = 0;
     
     send_message(ss_socket, &header, NULL);
@@ -46,7 +46,7 @@ static int auto_write_file(ClientState* state, const char* filename, const char*
 
     // 2. Write entire content at once using word_idx=-1
     init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_WORD, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = 0;
 
     // Allocate payload: "-1 " + content
@@ -74,7 +74,7 @@ static int auto_write_file(ClientState* state, const char* filename, const char*
 
     // 3. Unlock (ETIRW)
     init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_UNLOCK, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = 0;
     
     send_message(ss_socket, &header, NULL);

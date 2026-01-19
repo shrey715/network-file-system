@@ -146,10 +146,8 @@ void free_history(InputHistory* hist) {
  * @brief Clear the current terminal input line and reprint the prompt.
  *
  * @param prompt The prompt string to print after clearing the line.
- * @param buf_len Unused (kept for compatibility with prior API).
  */
-static void clear_line(const char* prompt, int buf_len) {
-    (void)buf_len;  // Unused parameter
+static void clear_line(const char* prompt) {
     // Move cursor to start of line
     printf("\r");
     // Clear from cursor to end of line
@@ -287,7 +285,7 @@ char* read_line_with_history(const char* prompt, InputHistory* hist) {
                             }
                             
                             hist->current--;
-                            clear_line(prompt, buf_len);
+                            clear_line(prompt);
                             
                             strncpy(buffer, hist->lines[hist->current], MAX_INPUT_LENGTH - 1);
                             buffer[MAX_INPUT_LENGTH - 1] = '\0';
@@ -302,7 +300,7 @@ char* read_line_with_history(const char* prompt, InputHistory* hist) {
                     case 'B':  // Down arrow
                         if (browsing_history && hist->current < hist->count) {
                             hist->current++;
-                            clear_line(prompt, buf_len);
+                            clear_line(prompt);
                             
                             if (hist->current == hist->count) {
                                 // Restore original input
@@ -412,7 +410,7 @@ char* read_line_with_history(const char* prompt, InputHistory* hist) {
         
         // Handle Ctrl+U (clear line)
         if (c == 21) {
-            clear_line(prompt, buf_len);
+            clear_line(prompt);
             buffer[0] = '\0';
             buf_len = 0;
             cursor_pos = 0;

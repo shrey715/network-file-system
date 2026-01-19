@@ -30,7 +30,8 @@ int execute_exec(ClientState *state, const char *filename);
 
 // ============ HELPER FUNCTIONS ============
 int get_storage_server_connection(ClientState *state, const char *filename,
-                                  int op_code, int *ss_socket_out);
+                                  int op_code, int *ss_socket_out,
+                                  char *ss_ip_out, int *ss_port_out);
 int send_nm_request_and_get_response(ClientState *state, MessageHeader *header,
                                      const char *payload, char **response_out);
 int execute_createfolder(ClientState *state, const char *foldername);

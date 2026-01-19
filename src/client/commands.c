@@ -98,12 +98,15 @@ int send_nm_request_and_get_response(ClientState* state, MessageHeader* header, 
  * @param filename Target filename.
  * @param op_code Operation code for the NM request (OP_READ, OP_WRITE, etc.).
  * @param ss_socket_out Out parameter: connected socket to storage server.
+ * @param ss_ip_out Optional out parameter: SS IP address (may be NULL).
+ * @param ss_port_out Optional out parameter: SS port number (may be NULL).
  * @return ERR_SUCCESS on success, or error code on failure.
  */
-int get_storage_server_connection(ClientState* state, const char* filename, int op_code, int* ss_socket_out) {
+int get_storage_server_connection(ClientState* state, const char* filename, int op_code, 
+                                  int* ss_socket_out, char* ss_ip_out, int* ss_port_out) {
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, op_code, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     char* ss_info = NULL;
     if (send_nm_request_and_get_response(state, &header, NULL, &ss_info) != ERR_SUCCESS) {
@@ -127,50 +130,7 @@ int get_storage_server_connection(ClientState* state, const char* filename, int 
     }
     free(ss_info);
     
-    // Connect to SS
-    int ss_socket = connect_to_server(ss_ip, ss_port);
-    if (ss_socket < 0) {
-        PRINT_ERR("Failed to connect to storage server");
-        return ERR_SS_UNAVAILABLE;
-    }
-    
-    *ss_socket_out = ss_socket;
-    return ERR_SUCCESS;
-}
-
-/**
- * get_storage_server_connection_ex
- * @brief Extended version that also returns SS IP and port for live updates.
- */
-int get_storage_server_connection_ex(ClientState* state, const char* filename, int op_code, 
-                                     int* ss_socket_out, char* ss_ip_out, int* ss_port_out) {
-    MessageHeader header;
-    init_message_header(&header, MSG_REQUEST, op_code, state->username);
-    strcpy(header.filename, filename);
-    
-    char* ss_info = NULL;
-    if (send_nm_request_and_get_response(state, &header, NULL, &ss_info) != ERR_SUCCESS) {
-        if (ss_info) free(ss_info);
-        return ERR_NETWORK_ERROR;
-    }
-    
-    if (header.msg_type != MSG_RESPONSE) {
-        PRINT_ERR("%s", get_error_message(header.error_code));
-        if (ss_info) free(ss_info);
-        return header.error_code;
-    }
-    
-    // Parse SS IP and port
-    char ss_ip[MAX_IP];
-    int ss_port;
-    if (parse_ss_info(ss_info, ss_ip, &ss_port) != 0) {
-        PRINT_ERR("Invalid storage server info");
-        free(ss_info);
-        return ERR_NETWORK_ERROR;
-    }
-    free(ss_info);
-    
-    // Return SS info for live updates
+    // Return SS info if requested (for live updates)
     if (ss_ip_out) strncpy(ss_ip_out, ss_ip, MAX_IP - 1);
     if (ss_port_out) *ss_port_out = ss_port;
     
@@ -239,10 +199,6 @@ int execute_view(ClientState* state, int flags) {
                         char time[16];
                         char owner[MAX_USERNAME];
 
-                        // char debug_info[256];
-                        // sprintf(debug_info, "Parsing line: '%s'", p);
-                        // log_message("CLIENT", "DEBUG", debug_info);
-
                         // Parse the trimmed line format from name server
                         if (sscanf(p, "%s %d %d %s %s %s", 
                                   filename, &words, &chars, date, time, owner) == 6) {
@@ -306,7 +262,7 @@ int execute_view(ClientState* state, int flags) {
  */
 int execute_read(ClientState* state, const char* filename) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_READ, &ss_socket);
+    int result = get_storage_server_connection(state, filename, OP_READ, &ss_socket, NULL, NULL);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -371,7 +327,7 @@ int execute_create(ClientState* state, const char* filename) {
         strcpy(header.filename, last_slash + 1);
     } else {
         // File in root directory
-        strcpy(header.filename, filename);
+        safe_strncpy(header.filename, filename, sizeof(header.filename));
         header.foldername[0] = '\0';
     }
     
@@ -406,7 +362,7 @@ int execute_create(ClientState* state, const char* filename) {
  */
 int execute_write(ClientState* state, const char* filename, int sentence_idx) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket);
+    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket, NULL, NULL);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -414,7 +370,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
     // Lock sentence
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_LOCK, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = sentence_idx;
     
     send_message(ss_socket, &header, NULL);
@@ -683,7 +639,7 @@ int execute_write(ClientState* state, const char* filename, int sentence_idx) {
  */
 int execute_undo(ClientState* state, const char* filename) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_UNDO, &ss_socket);
+    int result = get_storage_server_connection(state, filename, OP_UNDO, &ss_socket, NULL, NULL);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -691,7 +647,7 @@ int execute_undo(ClientState* state, const char* filename) {
     // Request undo
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_UNDO, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     send_message(ss_socket, &header, NULL);
     
@@ -720,7 +676,7 @@ int execute_undo(ClientState* state, const char* filename) {
 int execute_info(ClientState* state, const char* filename) {
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_INFO, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     char* response = NULL;
     send_nm_request_and_get_response(state, &header, NULL, &response);
@@ -750,7 +706,7 @@ int execute_info(ClientState* state, const char* filename) {
 int execute_delete(ClientState* state, const char* filename) {
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_DELETE, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     char* response = NULL;
     send_nm_request_and_get_response(state, &header, NULL, &response);
@@ -779,7 +735,7 @@ int execute_delete(ClientState* state, const char* filename) {
  */
 int execute_stream(ClientState* state, const char* filename) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_STREAM, &ss_socket);
+    int result = get_storage_server_connection(state, filename, OP_STREAM, &ss_socket, NULL, NULL);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -787,7 +743,7 @@ int execute_stream(ClientState* state, const char* filename) {
     // Request stream
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_STREAM, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     send_message(ss_socket, &header, NULL);
     
@@ -867,7 +823,7 @@ int execute_addaccess(ClientState* state, const char* filename, const char* user
                      int read, int write) {
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_ADDACCESS, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     char payload[BUFFER_SIZE];
     snprintf(payload, sizeof(payload), "%s %d %d", username, read, write);
@@ -900,7 +856,7 @@ int execute_addaccess(ClientState* state, const char* filename, const char* user
 int execute_remaccess(ClientState* state, const char* filename, const char* username) {
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_REMACCESS, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.data_length = strlen(username);
     
     char* response = NULL;
@@ -930,7 +886,7 @@ int execute_remaccess(ClientState* state, const char* filename, const char* user
 int execute_exec(ClientState* state, const char* filename) {
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_EXEC, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     
     char* response = NULL;
     send_nm_request_and_get_response(state, &header, NULL, &response);
@@ -1068,7 +1024,7 @@ int execute_checkpoint(ClientState* state, const char* filename, const char* che
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_CHECKPOINT;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     strcpy(header.checkpoint_tag, checkpoint_tag);
     header.data_length = 0;
     
@@ -1097,7 +1053,7 @@ int execute_viewcheckpoint(ClientState* state, const char* filename, const char*
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_VIEWCHECKPOINT;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     strcpy(header.checkpoint_tag, checkpoint_tag);
     header.data_length = 0;
     
@@ -1128,7 +1084,7 @@ int execute_revert(ClientState* state, const char* filename, const char* checkpo
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_REVERT;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     strcpy(header.checkpoint_tag, checkpoint_tag);
     header.data_length = 0;
     
@@ -1157,7 +1113,7 @@ int execute_listcheckpoints(ClientState* state, const char* filename) {
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_LISTCHECKPOINTS;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.data_length = 0;
     
     send_message(state->nm_socket, &header, NULL);
@@ -1189,7 +1145,7 @@ int execute_requestaccess(ClientState* state, const char* filename, int flags) {
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_REQUESTACCESS;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.flags = flags;
     header.data_length = 0;
     
@@ -1263,7 +1219,7 @@ int execute_viewrequests(ClientState* state, const char* filename) {
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_VIEWREQUESTS;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.data_length = 0;
     
     send_message(state->nm_socket, &header, NULL);
@@ -1294,7 +1250,7 @@ int execute_approverequest(ClientState* state, const char* filename, const char*
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_APPROVEREQUEST;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.data_length = strlen(username);
     
     send_message(state->nm_socket, &header, username);
@@ -1323,7 +1279,7 @@ int execute_denyrequest(ClientState* state, const char* filename, const char* us
     header.msg_type = MSG_REQUEST;
     header.op_code = OP_DENYREQUEST;
     strcpy(header.username, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.data_length = strlen(username);
     
     send_message(state->nm_socket, &header, username);
@@ -1355,7 +1311,7 @@ int execute_denyrequest(ClientState* state, const char* filename, const char* us
  */
 int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
     int ss_socket;
-    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket);
+    int result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket, NULL, NULL);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -1363,7 +1319,7 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
     /* Lock sentence */
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_LOCK, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = sentence_idx;
 
     send_message(ss_socket, &header, NULL);
@@ -1457,7 +1413,7 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
 
     /* Reconnect to storage server (connection may have closed during edit) */
     int ss_socket2;
-    result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket2);
+    result = get_storage_server_connection(state, filename, OP_WRITE, &ss_socket2, NULL, NULL);
     if (result != ERR_SUCCESS) {
         if (new_content) free(new_content);
         PRINT_ERR("Failed to reconnect to storage server for save");
@@ -1489,7 +1445,7 @@ int execute_edit(ClientState* state, const char* filename, int sentence_idx) {
 
     /* Unlock sentence */
     init_message_header(&header, MSG_REQUEST, OP_SS_WRITE_UNLOCK, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
     header.sentence_index = sentence_idx;
 
     send_message(ss_socket2, &header, NULL);
@@ -1523,7 +1479,7 @@ int execute_open(ClientState* state, const char* filename) {
     char ss_ip[MAX_IP] = {0};
     int ss_port = 0;
     
-    int result = get_storage_server_connection_ex(state, filename, OP_READ, &ss_socket, ss_ip, &ss_port);
+    int result = get_storage_server_connection(state, filename, OP_READ, &ss_socket, ss_ip, &ss_port);
     if (result != ERR_SUCCESS) {
         return result;
     }
@@ -1531,7 +1487,7 @@ int execute_open(ClientState* state, const char* filename) {
     /* Request file content */
     MessageHeader header;
     init_message_header(&header, MSG_REQUEST, OP_SS_READ, state->username);
-    strcpy(header.filename, filename);
+    safe_strncpy(header.filename, filename, sizeof(header.filename));
 
     send_message(ss_socket, &header, NULL);
 

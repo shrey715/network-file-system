@@ -59,7 +59,7 @@ void* handle_client_connection(void* arg) {
                 char ss_provided_ip[MAX_IP] = {0};
                 
                 // Parse registration payload - ss_ip is optional for backward compatibility
-                int parsed = sscanf(payload, "%d %d %d %63s", &server_id, &nm_port, &client_port, ss_provided_ip);
+                int parsed = sscanf(payload, "%d %d %d %15s", &server_id, &nm_port, &client_port, ss_provided_ip);
                 
                 char ip[MAX_IP];
                 if (parsed >= 4 && ss_provided_ip[0] != '\0') {
@@ -152,10 +152,7 @@ void* handle_client_connection(void* arg) {
                     
                     log_message("NM", "WARN", details);
                     
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_USERNAME_TAKEN;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_USERNAME_TAKEN);
                     break;
                 }
                 
@@ -196,18 +193,12 @@ void* handle_client_connection(void* arg) {
                 pthread_mutex_unlock(&ns_state.lock);
                 
                 if (result_code == ERR_SUCCESS) {
-                    header.msg_type = MSG_ACK;
-                    header.error_code = ERR_SUCCESS;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_ack(client_fd, &header);
                     
                     // Log successful connection
                     log_operation("NM", "INFO", "CLIENT_CONNECT_SUCCESS", payload, client_ip, client_port, "Client registered", ERR_SUCCESS);
                 } else {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = result_code;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, result_code);
                 }
                 break;
             }
@@ -344,10 +335,7 @@ void* handle_client_connection(void* arg) {
                 if (!is_valid_filename(header.filename)) {
                     result_code = ERR_INVALID_FILENAME;
                     log_message("NM", "ERROR", "File creation rejected: Invalid filename (reserved extension)");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_INVALID_FILENAME;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_INVALID_FILENAME);
                     break;
                 }
                 
@@ -356,20 +344,14 @@ void* handle_client_connection(void* arg) {
                 if (ss_id < 0) {
                     result_code = ERR_SS_UNAVAILABLE;
                     log_message("NM", "ERROR", "File creation failed: No storage server available");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
                 StorageServerInfo* ss = nm_find_storage_server(ss_id);
                 if (!ss) {
                     result_code = ERR_SS_UNAVAILABLE;
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
@@ -383,10 +365,7 @@ void* handle_client_connection(void* arg) {
                 if (ss_socket < 0) {
                     result_code = ERR_SS_UNAVAILABLE;
                     log_message("NM", "ERROR", "Failed to connect to storage server");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
@@ -432,10 +411,7 @@ void* handle_client_connection(void* arg) {
                 if (!file) {
                     result_code = ERR_FILE_NOT_FOUND;
                     log_message("NM", "ERROR", "Delete failed: File not found");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_FILE_NOT_FOUND;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_FILE_NOT_FOUND);
                     break;
                 }
                 
@@ -445,10 +421,7 @@ void* handle_client_connection(void* arg) {
                     snprintf(msg, sizeof(msg), "Delete denied: User '%s' not owner of '%s'", 
                              header.username, header.filename);
                     log_message("NM", "WARN", msg);
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_NOT_OWNER;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_NOT_OWNER);
                     break;
                 }
                 
@@ -457,10 +430,7 @@ void* handle_client_connection(void* arg) {
                 if (!ss) {
                     result_code = ERR_SS_UNAVAILABLE;
                     log_message("NM", "ERROR", "Delete failed: Storage server unavailable");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
@@ -473,10 +443,7 @@ void* handle_client_connection(void* arg) {
                 if (ss_socket < 0) {
                     result_code = ERR_SS_UNAVAILABLE;
                     log_message("NM", "ERROR", "Failed to connect to storage server");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
@@ -521,10 +488,7 @@ void* handle_client_connection(void* arg) {
                 if (!file) {
                     result_code = ERR_FILE_NOT_FOUND;
                     log_message("NM", "ERROR", "Operation failed: File not found");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_FILE_NOT_FOUND;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_FILE_NOT_FOUND);
                     break;
                 }
                 
@@ -537,55 +501,17 @@ void* handle_client_connection(void* arg) {
                     snprintf(msg, sizeof(msg), "Permission denied for '%s' on file '%s'", 
                              header.username, header.filename);
                     log_message("NM", "WARN", msg);
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = perm_result;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, perm_result);
                     break;
                 }
                 
                 // Find target Storage Server with Failover support
-                StorageServerInfo* target_ss = NULL;
-                StorageServerInfo* primary_ss = NULL;
-                
-                // 1. Find the Primary SS (even if inactive)
-                for (int i = 0; i < ns_state.ss_count; i++) {
-                    if (ns_state.storage_servers[i].server_id == file->ss_id) {
-                        primary_ss = &ns_state.storage_servers[i];
-                        break;
-                    }
-                }
-
-                if (primary_ss && primary_ss->is_active) {
-                    target_ss = primary_ss;
-                } else if (primary_ss && !primary_ss->is_active) {
-                    // 2. Failover: Check for active Replica
-                    // Allow failover for ALL operations now that we have version-based sync
-                    // When primary recovers, it will sync from replica using timestamps
-                    if (primary_ss->replica_active) {
-                        // Find the replica
-                        for (int i = 0; i < ns_state.ss_count; i++) {
-                            if (ns_state.storage_servers[i].server_id == primary_ss->replica_id &&
-                                ns_state.storage_servers[i].is_active) {
-                                target_ss = &ns_state.storage_servers[i];
-                                
-                                char alert[512];
-                                snprintf(alert, sizeof(alert), "[FAILOVER] Redirecting '%s' request for '%s' to Active Replica SS #%d (Primary SS #%d is DOWN)", 
-                                         op_name(header.op_code), header.filename, target_ss->server_id, primary_ss->server_id);
-                                log_message("NM", "WARN", alert);
-                                break;
-                            }
-                        }
-                    }
-                }
+                StorageServerInfo* target_ss = get_ss_with_failover(file->ss_id, op_name(header.op_code), header.filename);
 
                 if (!target_ss) {
                     result_code = ERR_SS_UNAVAILABLE;
                     log_message("NM", "ERROR", "Storage server unavailable (Primary and Replica both down or not found)");
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
 
@@ -618,20 +544,14 @@ void* handle_client_connection(void* arg) {
                 // Get file info
                 FileMetadata* file = nm_find_file(header.filename);
                 if (!file) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_FILE_NOT_FOUND;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_FILE_NOT_FOUND);
                     break;
                 }
                 
                 // Check permission
                 int perm_result = nm_check_permission(header.filename, header.username, 0);
                 if (perm_result != ERR_SUCCESS) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = perm_result;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, perm_result);
                     break;
                 }
 
@@ -840,49 +760,27 @@ void* handle_client_connection(void* arg) {
                 
                 // Construct the new full path for the file
                 char new_fullpath[MAX_PATH];
-                if (header.foldername[0]) {
-                    snprintf(new_fullpath, sizeof(new_fullpath), "%s/%s", 
-                             header.foldername, header.filename);
-                } else {
-                    strncpy(new_fullpath, header.filename, sizeof(new_fullpath) - 1);
-                    new_fullpath[sizeof(new_fullpath) - 1] = '\0';
-                }
+                construct_full_path(new_fullpath, sizeof(new_fullpath), header.foldername, header.filename);
                 
                 // First, move the file physically on the storage server
                 StorageServerInfo* ss = nm_find_storage_server(file->ss_id);
                 if (!ss || !ss->is_active) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
                 int ss_socket = connect_to_server(ss->ip, ss->client_port);
                 if (ss_socket < 0) {
-                    header.msg_type = MSG_ERROR;
-                    header.error_code = ERR_SS_UNAVAILABLE;
-                    header.data_length = 0;
-                    send_message(client_fd, &header, NULL);
+                    send_error(client_fd, &header, ERR_SS_UNAVAILABLE);
                     break;
                 }
                 
                 // Construct the current full path
                 char old_fullpath[MAX_PATH];
-                if (file->folder_path[0]) {
-                    int written = snprintf(old_fullpath, sizeof(old_fullpath), "%s/%s", 
-                                          file->folder_path, header.filename);
-                    if (written >= (int)sizeof(old_fullpath)) {
-                        header.msg_type = MSG_ERROR;
-                        header.error_code = ERR_INVALID_PATH;
-                        header.data_length = 0;
-                        send_message(client_fd, &header, NULL);
-                        close(ss_socket);
-                        break;
-                    }
-                } else {
-                    strncpy(old_fullpath, header.filename, sizeof(old_fullpath) - 1);
-                    old_fullpath[sizeof(old_fullpath) - 1] = '\0';
+                if (construct_full_path(old_fullpath, sizeof(old_fullpath), file->folder_path, header.filename) < 0) {
+                    send_error(client_fd, &header, ERR_INVALID_PATH);
+                    close(ss_socket);
+                    break;
                 }
                 
                 MessageHeader ss_header;
